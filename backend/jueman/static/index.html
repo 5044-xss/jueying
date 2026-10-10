@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>jue-man · 自测台</title>
+<style>
+  :root{
+    --bg:#0b0e14; --panel:#141926; --panel2:#1b2130; --line:#262d3d;
+    --txt:#e6e9ef; --dim:#8b93a7; --acc:#7c5cff; --acc2:#22d3ee;
+    --ok:#34d399; --warn:#fbbf24; --err:#f87171;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:radial-gradient(1200px 600px at 80% -10%,#1a1440 0%,var(--bg) 55%);
+    color:var(--txt);font:14px/1.5 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;}
+  header{padding:22px 28px;display:flex;align-items:center;gap:14px;border-bottom:1px solid var(--line)}
+  header h1{margin:0;font-size:20px;letter-spacing:.5px}
+  header .tag{font-size:12px;color:var(--dim);border:1px solid var(--line);padding:2px 8px;border-radius:999px}
+  main{display:grid;grid-template-columns:minmax(360px,1fr) minmax(420px,1.1fr);gap:18px;padding:18px 28px 60px;max-width:1400px;margin:0 auto}
+  @media(max-width:980px){main{grid-template-columns:1fr}}
+  .card{background:linear-gradient(180deg,var(--panel),var(--panel2));border:1px solid var(--line);
+    border-radius:14px;padding:16px 16px 18px;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+  .card h2{font-size:14px;margin:0 0 12px;color:var(--dim);font-weight:600;text-transform:uppercase;letter-spacing:.08em}
+  label{display:block;font-size:12px;color:var(--dim);margin:10px 0 4px}
+  input,select,textarea{width:100%;background:#0e1320;border:1px solid var(--line);color:var(--txt);
+    border-radius:9px;padding:9px 10px;font:inherit;outline:none}
+  input:focus,select:focus,textarea:focus{border-color:var(--acc)}
+  textarea{min-height:120px;resize:vertical;line-height:1.6}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+  button{cursor:pointer;border:1px solid var(--line);background:#0e1320;color:var(--txt);
+    border-radius:9px;padding:9px 14px;font:inherit;transition:.15s}
+  button:hover{border-color:var(--acc)}
+  button.primary{background:linear-gradient(90deg,var(--acc),var(--acc2));border:0;color:#0b0e14;font-weight:700}
+  button.primary:hover{filter:brightness(1.08)}
+  button.ghost{background:transparent}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  .actions{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(86px,1fr));gap:8px;margin-top:8px}
+  .thumb{position:relative;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#0e1320;aspect-ratio:1}
+  .thumb img{width:100%;height:100%;object-fit:cover;display:block}
+  .thumb .no{position:absolute;left:4px;top:4px;background:var(--acc);color:#0b0e14;font-weight:700;
+    font-size:11px;border-radius:6px;padding:1px 6px}
+  .thumb .x{position:absolute;right:4px;top:4px;background:rgba(0,0,0,.6);border:0;color:#fff;
+    width:20px;height:20px;line-height:18px;border-radius:6px;padding:0}
+  .thumb.audio{aspect-ratio:auto;padding:8px;font-size:11px;color:var(--dim);word-break:break-all}
+  .drop{border:1.5px dashed var(--line);border-radius:12px;padding:16px;text-align:center;color:var(--dim);cursor:pointer}
+  .drop:hover{border-color:var(--acc);color:var(--txt)}
+  .chips{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
+  .chip{background:#0e1320;border:1px solid var(--line);border-radius:999px;padding:3px 10px;font-size:12px;cursor:pointer;color:var(--acc2)}
+  .chip:hover{border-color:var(--acc)}
+  .status{margin-top:12px;padding:10px 12px;border-radius:10px;font-size:13px;border:1px solid var(--line);background:#0e1320}
+  .status.ok{border-color:var(--ok);color:var(--ok)}
+  .status.err{border-color:var(--err);color:var(--err)}
+  .status.run{border-color:var(--warn);color:var(--warn)}
+  .bar{height:8px;border-radius:999px;background:#0e1320;border:1px solid var(--line);overflow:hidden;margin-top:10px}
+  .bar>i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--acc),var(--acc2));transition:width .3s}
+  video{width:100%;border-radius:12px;margin-top:12px;background:#000}
+  .muted{color:var(--dim);font-size:12px}
+  .kv{font-size:12px;color:var(--dim);margin-top:6px;white-space:pre-wrap;max-height:120px;overflow:auto}
+  .hide{display:none}
+</style>
+</head>
+<body>
+<header>
+  <h1>jue-man · 自测台</h1>
+  <span class="tag">仙宫云 / AutoDL · ComfyUI</span>
+  <span id="health" class="muted" style="margin-left:auto"></span>
+</header>
+
+<main>
+  <div style="display:flex;flex-direction:column;gap:18px">
+    <!-- 连接 -->
+    <section class="card">
+      <h2>① 云端连接</h2>
+      <div class="row">
+        <div>
+          <label>类型</label>
+          <select id="type" onchange="onType()">
+            <option value="xgpu">仙宫云（URL 直连）</option>
+            <option value="autodl">AutoDL（SSH 隧道）</option>
+          </select>
+        </div>
+        <div>
+          <label>采样链路</label>
+          <select id="sampler">
+            <option value="">自动（xgpu→legacy / autodl→new）</option>
+            <option value="legacy">legacy</option>
+            <option value="new">new</option>
+          </select>
+        </div>
+      </div>
+      <div id="xgpuBox">
+        <label>实例地址 base_url</label>
+        <input id="base_url" placeholder="https://<实例ID>-8188.container.x-gpu.com">
+      </div>
+      <div id="sshBox" class="hide">
+        <div class="row3">
+          <div><label>SSH 主机</label><input id="ssh_host"></div>
+          <div><label>端口</label><input id="ssh_port" type="number" value="22"></div>
+          <div><label>用户</label><input id="ssh_user" value="root"></div>
+        </div>
+        <div class="row">
+          <div><label>密码</label><input id="ssh_pass" type="password"></div>
+          <div><label>ComfyUI 端口</label><input id="comfy_port" type="number" value="6006"></div>
+        </div>
+      </div>
+      <div class="row">
+        <div><label>模型目录前缀</label><input id="model_prefix" value="MiniMax-H3"></div>
+        <div><label>LoRA 前缀（空=同模型前缀）</label><input id="lora_prefix" placeholder="（可选）"></div>
+      </div>
+      <div class="actions">
+        <button class="primary" onclick="testCloud()">测试连接</button>
+        <button onclick="saveCloud()">保存配置</button>
+      </div>
+      <div id="cloudStatus" class="status hide"></div>
+      <div id="catalog" class="kv"></div>
+    </section>
+
+    <!-- 素材 -->
+    <section class="card">
+      <h2>② 参考素材</h2>
+      <label>参考图（多选，顺序即 &lt;Picture N&gt;）</label>
+      <div class="drop" id="dropImg">点击或拖拽图片到此（png/jpg/webp…）</div>
+      <input id="fileImg" type="file" accept="image/*" multiple class="hide">
+      <div id="imgGrid" class="grid"></div>
+      <label>参考音频（可选，多选）</label>
+      <div class="drop" id="dropAud">点击或拖拽音频到此（mp3/wav/m4a…）</div>
+      <input id="fileAud" type="file" accept="audio/*" multiple class="hide">
+      <div id="audGrid" class="grid"></div>
+    </section>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:18px">
+    <!-- 参数 + 提示词 -->
+    <section class="card">
+      <h2>③ 生成参数</h2>
+      <div class="row3">
+        <div><label>时长(秒)</label><input id="duration" type="number" min="4" max="15" value="8"></div>
+        <div><label>画幅</label>
+          <select id="aspect">
+            <option>16:9</option><option>9:16</option><option>1:1</option><option>4:3</option><option>3:4</option>
+          </select>
+        </div>
+        <div><label>清晰度(MP)</label>
+          <select id="resolution">
+            <option>0.4</option><option selected>0.5</option><option>1</option><option>1.5</option><option>2</option>
+          </select>
+        </div>
+      </div>
+      <div class="row3">
+        <div><label>首帧（可选）</label><select id="firstFrame"><option value="">无</option></select></div>
+        <div><label>尾帧（可选）</label><select id="lastFrame"><option value="">无</option></select></div>
+        <div><label>种子（0=随机）</label><input id="seed" type="number" value="0"></div>
+      </div>
+
+      <label>提示词（点下方标签插入 @图片N）</label>
+      <div id="chips" class="chips"></div>
+      <textarea id="prompt" placeholder="描述这一段的画面与动作。例：@图片1 抬手把书递给她，镜头缓缓推进…"></textarea>
+      <div class="row">
+        <div><label>任务名（用于文件名）</label><input id="title" placeholder="clip-1"></div>
+        <div><label>模型路由</label>
+          <select id="modelVariant">
+            <option value="auto">auto（有音频→ref2va）</option>
+            <option value="fl2va">fl2va</option>
+            <option value="ref2va">ref2va</option>
+          </select>
+        </div>
+      </div>
+      <div class="actions">
+        <button class="primary" id="genBtn" onclick="generate()">生成视频</button>
+        <button class="ghost" id="cancelBtn" onclick="cancelJob()" disabled>取消</button>
+      </div>
+    </section>
+
+    <!-- 结果 -->
+    <section class="card">
+      <h2>④ 结果</h2>
+      <div id="jobStatus" class="status">尚未提交。</div>
+      <div class="bar"><i id="bar"></i></div>
+      <div id="jobDetail" class="kv"></div>
+      <video id="video" controls class="hide"></video>
+    </section>
+  </div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+let images = [], audios = [], jobId = "", es = null;
+
+async function api(path, opt){
+  const r = await fetch(path, opt);
+  let data = null;
+  try { data = await r.json(); } catch(e) {}
+  if(!r.ok){ throw new Error((data && (data.detail||data.message)) || r.statusText); }
+  return data;
+}
+
+/* ---------- 连接 ---------- */
+function onType(){
+  const t = $('type').value;
+  $('xgpuBox').classList.toggle('hide', t !== 'xgpu');
+  $('sshBox').classList.toggle('hide', t !== 'autodl');
+}
+
+function readCloud(){
+  const c = {
+    type: $('type').value,
+    sampler_mode: $('sampler').value,
+    model_prefix: $('model_prefix').value.trim(),
+    lora_prefix: $('lora_prefix').value.trim() === '' ? null : $('lora_prefix').value.trim(),
+    base_url: $('base_url').value.trim(),
+    ssh_host: $('ssh_host').value.trim(),
+    ssh_port: parseInt($('ssh_port').value||'22',10),
+    ssh_user: $('ssh_user').value.trim() || 'root',
+    ssh_pass: $('ssh_pass').value,
+    comfy_port: parseInt($('comfy_port').value||'8188',10),
+  };
+  return c;
+}
+
+function fillCloud(c){
+  c = c || {};
+  $('type').value = c.type || 'xgpu';
+  $('sampler').value = c.sampler_mode || '';
+  $('base_url').value = c.base_url || '';
+  $('model_prefix').value = c.model_prefix || 'MiniMax-H3';
+  $('lora_prefix').value = (c.lora_prefix==null?'':c.lora_prefix);
+  $('ssh_host').value = c.ssh_host || '';
+  $('ssh_port').value = c.ssh_port || 22;
+  $('ssh_user').value = c.ssh_user || 'root';
+  $('ssh_pass').value = c.ssh_pass || '';
+  $('comfy_port').value = c.comfy_port || 8188;
+  onType();
+}
+
+function setStatus(el, text, cls){
+  el.className = 'status' + (cls?(' '+cls):'');
+  el.textContent = text;
+  el.classList.remove('hide');
+}
+
+async function loadSettings(){
+  try{
+    const s = await api('/api/settings');
+    fillCloud(s.cloud);
+    if(s.gen){
+      $('duration').value = s.gen.duration_max || 10;
+    }
+  }catch(e){ setStatus($('cloudStatus'), '读取配置失败：'+e.message, 'err'); }
+}
+
+async function saveCloud(){
+  try{
+    await api('/api/settings', {method:'PUT',headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({cloud: readCloud()})});
+    setStatus($('cloudStatus'), '配置已保存。', 'ok');
+  }catch(e){ setStatus($('cloudStatus'), '保存失败：'+e.message, 'err'); }
+}
+
+async function testCloud(){
+  setStatus($('cloudStatus'), '正在测试连接…', 'run');
+  $('catalog').textContent = '';
+  try{
+    const r = await api('/api/cloud/test', {method:'POST',headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({cloud: readCloud()})});
+    if(r.ok){
+      let extra = '';
+      if(r.catalog){
+        const c = r.catalog;
+        extra = '节点 ' + c.nodes.length + ' 个；XB分辨率节点：' + (c.has_xb_resolution?'有':'无')
+          + '；SaveVideo：' + (c.has_savevideo?'有':'无')
+          + '\nunet 可用：' + (c.files.unet||[]).slice(0,3).join(', ')
+          + '\nclip 可用：' + (c.files.clip||[]).slice(0,3).join(', ');
+      }
+      setStatus($('cloudStatus'), '连接正常：' + (r.detail||''), 'ok');
+      $('catalog').textContent = extra;
+    }else{
+      setStatus($('cloudStatus'), '连接失败：' + (r.detail||''), 'err');
+    }
+  }catch(e){ setStatus($('cloudStatus'), '连接失败：'+e.message, 'err'); }
+}
+
+/* ---------- 素材 ---------- */
+function wireDrop(dropId, fileId, kind){
+  const drop = $(dropId), inp = $(fileId);
+  drop.onclick = () => inp.click();
+  inp.onchange = () => { uploadFiles(inp.files, kind); inp.value=''; };
+  ['dragover','dragenter'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.style.borderColor='var(--acc)';}));
+  ['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.style.borderColor='';}));
+  drop.addEventListener('drop', e => uploadFiles(e.dataTransfer.files, kind));
+}
+
+async function uploadFiles(files, kind){
+  for(const f of files){
+    const fd = new FormData();
+    fd.append('file', f);
+    fd.append('kind', kind);
+    try{
+      const a = await api('/api/assets', {method:'POST', body: fd});
+      (kind==='image'?images:audios).push(a);
+    }catch(e){ alert('上传失败 '+f.name+'：'+e.message); }
+  }
+  renderAssets();
+}
+
+function renderAssets(){
+  // images
+  const g = $('imgGrid'); g.innerHTML = '';
+  images.forEach((a,i)=>{
+    const d = document.createElement('div'); d.className='thumb';
+    d.innerHTML = '<span class="no">'+(i+1)+'</span>'
+      + '<img src="/api/assets/'+a.id+'">'
+      + '<button class="x" title="移除">×</button>';
+    d.querySelector('.x').onclick = ()=>{ images.splice(i,1); renderAssets(); };
+    d.querySelector('img').onclick = ()=> insertMention(i+1);
+    g.appendChild(d);
+  });
+  // audios
+  const ga = $('audGrid'); ga.innerHTML='';
+  audios.forEach((a,i)=>{
+    const d = document.createElement('div'); d.className='thumb audio';
+    d.innerHTML = '♪ '+a.name+' <button class="x" style="position:static;float:right">×</button>';
+    d.querySelector('.x').onclick = ()=>{ audios.splice(i,1); renderAssets(); };
+    ga.appendChild(d);
+  });
+  // first/last selects
+  const opts = '<option value="">无</option>' + images.map((a,i)=>
+    '<option value="'+a.id+'">图片 '+(i+1)+'</option>').join('');
+  const f=$('firstFrame'), l=$('lastFrame');
+  const fv=f.value, lv=l.value;
+  f.innerHTML=opts; l.innerHTML=opts; f.value=fv; l.value=lv;
+  // chips
+  const ch = $('chips'); ch.innerHTML='';
+  images.forEach((a,i)=>{
+    const c=document.createElement('span'); c.className='chip'; c.textContent='@图片'+(i+1);
+    c.onclick=()=>insertMention(i+1); ch.appendChild(c);
+  });
+}
+
+function insertMention(n){
+  const t=$('prompt'); const s=t.selectionStart||0, e=t.selectionEnd||0;
+  const txt='@图片'+n+' ';
+  t.value=t.value.slice(0,s)+txt+t.value.slice(e);
+  t.focus(); t.selectionStart=t.selectionEnd=s+txt.length;
+}
+
+/* ---------- 生成 ---------- */
+async function generate(){
+  if(!$('prompt').value.trim()){ alert('请填写提示词'); return; }
+  if(es){ es.close(); es=null; }
+  $('video').classList.add('hide'); $('video').removeAttribute('src');
+  $('genBtn').disabled = true; $('cancelBtn').disabled = false;
+  setStatus($('jobStatus'), '正在提交…', 'run');
+  const body = {
+    prompt: $('prompt').value,
+    title: $('title').value || 'clip',
+    duration: parseInt($('duration').value||'8',10),
+    aspect: $('aspect').value,
+    resolution: $('resolution').value,
+    seed: parseInt($('seed').value||'0',10),
+    images: images.map(a=>a.id),
+    audios: audios.map(a=>a.id),
+    firstFrame: $('firstFrame').value || null,
+    lastFrame: $('lastFrame').value || null,
+    samplerMode: $('sampler').value || null,
+    modelVariant: $('modelVariant').value,
+  };
+  try{
+    const job = await api('/api/jobs', {method:'POST',headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(body)});
+    jobId = job.id;
+    $('jobDetail').textContent = '任务 ID：'+job.id+'\n云端 prompt_id：'+job.promptId;
+    watchJob();
+  }catch(e){
+    setStatus($('jobStatus'), '提交失败：'+e.message, 'err');
+    $('genBtn').disabled=false; $('cancelBtn').disabled=true;
+  }
+}
+
+function applyJob(j){
+  const st = j.state;
+  const cls = st==='success'?'ok':(st==='error'?'err':'run');
+  setStatus($('jobStatus'), '状态：'+st+'　'+ (j.message||'') + (j.error?('　'+j.error):''), cls);
+  const p=j.progress||{}; const pct = (p.total? Math.min(100, Math.round(p.bytes*100/p.total)) : 0);
+  $('bar').style.width = (st==='success'?100:pct)+'%';
+  if(st==='success' && j.videoUrl){
+    const v=$('video'); v.src = j.videoUrl + '?t=' + Date.now(); v.classList.remove('hide');
+    v.load();
+    $('genBtn').disabled=false; $('cancelBtn').disabled=true;
+  }
+  if(st==='error' || st==='cancelled'){
+    $('genBtn').disabled=false; $('cancelBtn').disabled=true;
+  }
+}
+
+function watchJob(){
+  if(!jobId) return;
+  try{
+    es = new EventSource('/api/jobs/'+jobId+'/events');
+    es.onmessage = ev => { try{ applyJob(JSON.parse(ev.data)); }catch(e){} };
+    es.addEventListener('done', ev => {
+      try{ applyJob(JSON.parse(ev.data)); }catch(e){}
+      es.close(); es=null;
+    });
+    es.onerror = () => { if(es){ es.close(); es=null; } pollJob(); };
+  }catch(e){ pollJob(); }
+}
+
+async function pollJob(){
+  if(!jobId) return;
+  try{
+    const j = await api('/api/jobs/'+jobId);
+    applyJob(j);
+    if(j.state==='running' || j.state==='queued') setTimeout(pollJob, 2000);
+  }catch(e){ setTimeout(pollJob, 3000); }
+}
+
+async function cancelJob(){
+  if(!jobId) return;
+  try{ applyJob(await api('/api/jobs/'+jobId+'/cancel', {method:'POST'})); }catch(e){}
+}
+
+/* ---------- init ---------- */
+async function health(){
+  try{
+    const h = await api('/api/health');
+    $('health').textContent = 'v'+h.version + ' · ' + (h.configured?'已配置':'未配置云端地址');
+  }catch(e){ $('health').textContent = '服务不可达'; }
+}
+
+wireDrop('dropImg','fileImg','image');
+wireDrop('dropAud','fileAud','audio');
+loadSettings();
+renderAssets();
+health();
+setInterval(health, 15000);
+</script>
+</body>
+</html>

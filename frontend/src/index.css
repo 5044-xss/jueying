@@ -1,0 +1,134 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Monochrome core */
+  --canvas: 255 255 255;
+  --soft: 247 247 245;
+  --line: 231 231 226;
+  --ink: 17 17 17;
+  --dim: 108 108 112;
+
+  /* Brand accent (lime-green) */
+  --acc: 58 168 107;
+  --acc2: 33 120 74;
+
+  /* Semantic */
+  --ok: 30 166 74;
+  --warn: 190 132 12;
+  --err: 217 66 66;
+
+  /* Pastel color blocks */
+  --lime: 220 238 177;
+  --mint: 200 230 205;
+  --cream: 244 236 214;
+  --lilac: 197 176 244;
+  --pink: 239 212 212;
+  --coral: 243 201 182;
+  --navy: 31 29 61;
+
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(900px 560px at 4% -12%, rgb(var(--lime) / 0.85), transparent 60%),
+    radial-gradient(1000px 600px at 100% -4%, rgb(var(--mint) / 0.75), transparent 62%),
+    radial-gradient(820px 680px at 50% 132%, rgb(var(--cream) / 0.8), transparent 60%),
+    rgb(245 248 241);
+  background-attachment: fixed;
+  color: rgb(var(--ink));
+  font:
+    14px/1.55 Inter,
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    'Microsoft YaHei',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+/* 滚动条 */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--ink) / 0.16);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--ink) / 0.3);
+  background-clip: content-box;
+}
+
+@layer components {
+  .card {
+    @apply rounded-3xl border border-line/70 bg-canvas/55 p-5 shadow-card backdrop-blur-xl;
+  }
+  .label {
+    @apply mb-1.5 block text-xs font-medium text-dim;
+  }
+  .input {
+    @apply w-full rounded-xl border border-line bg-canvas px-3.5 py-2.5 text-sm text-ink
+      outline-none transition placeholder:text-dim/50
+      focus:border-acc focus:ring-2 focus:ring-acc/20 disabled:opacity-50;
+  }
+  select.input {
+    -webkit-appearance: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236c6c70' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.75rem center;
+    background-size: 15px;
+    padding-right: 2.25rem;
+  }
+  .btn {
+    @apply inline-flex select-none items-center justify-center gap-2 rounded-full border border-line
+      bg-canvas px-4 py-2 text-sm font-medium text-ink transition
+      hover:border-ink/25 hover:bg-soft disabled:cursor-not-allowed disabled:opacity-40;
+  }
+  .btn-primary {
+    @apply border-transparent bg-ink text-white hover:border-transparent hover:bg-ink/90;
+  }
+  .btn-ghost {
+    @apply border-transparent bg-transparent hover:bg-soft;
+  }
+  .chip {
+    @apply cursor-pointer rounded-full border border-line bg-soft px-3 py-1
+      text-xs font-medium text-ink/80 transition hover:border-acc hover:text-acc;
+  }
+  .section-title {
+    @apply font-mono text-[11px] font-semibold uppercase tracking-[0.1em] text-dim;
+  }
+}
+
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.drag-region {
+  -webkit-app-region: drag;
+}
+.no-drag {
+  -webkit-app-region: no-drag;
+}

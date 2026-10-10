@@ -1,0 +1,32 @@
+# 依赖 / 构建产物
+node_modules/
+dist/
+dist-ssr/
+release/
+
+# 运行时数据（含密钥）不入库
+backend/config.json
+backend/data/
+
+# 日志
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+
+# 编辑器 / 系统
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.local

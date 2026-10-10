@@ -1,0 +1,9 @@
+fastapi>=0.110
+uvicorn[standard]>=0.27
+python-multipart>=0.0.9
+urllib3>=2.0
+
+# 可选依赖（按需启用）：
+# pillow            # 参考图压成 JPEG data URI（autodl_api 路径才需要）
+# paramiko          # 仅 AutoDL SSH 隧道连接需要
+# websocket-client  # 仅 ComfyUI /ws 实时进度需要

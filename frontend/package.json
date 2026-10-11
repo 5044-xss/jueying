@@ -88,7 +88,11 @@
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
-      "deleteAppDataOnUninstall": false
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "jueying-setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "jueying-portable-${version}.${ext}"
     }
   }
 }

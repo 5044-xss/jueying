@@ -30,6 +30,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 
 from . import config
 from . import jobs as jobs_svc
+from . import cases as cases_svc
 
 app = FastAPI(title="jue-man", version="0.1.0")
 app.add_middleware(
@@ -334,20 +335,40 @@ def duplicate_project(body: dict):
 _CASE_VIDEO_EXTS = (".mp4", ".webm", ".mov", ".mkv")
 
 
-@app.get("/api/cases/{name}/video")
-def case_video(name: str):
-    """案例演示视频：HOME/data/case/<name>/output 下的第一个视频。"""
-    safe = os.path.basename(name or "")
-    if not safe or safe in (".", ".."):
-        raise HTTPException(status_code=400, detail="非法案例名")
-    d = os.path.join(config.HOME, "data", "case", safe, "output")
-    if not os.path.isdir(d):
-        raise HTTPException(status_code=404, detail="案例目录不存在")
-    for fn in sorted(os.listdir(d)):
-        if fn.lower().endswith(_CASE_VIDEO_EXTS):
-            return FileResponse(os.path.join(d, fn), media_type="video/mp4",
-                                filename=fn)
-    raise HTTPException(status_code=404, detail="案例视频不存在")
+@app.get("/api/cases")
+def list_cases():
+    return cases_svc.list_cases()
+
+
+@app.post("/api/cases/install")
+def install_cases():
+    """首次使用：从 GitHub Release 下载 cases.zip 并解压到 HOME/cases。"""
+    try:
+        return cases_svc.start_install()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)[:300])
+
+
+@app.get("/api/cases/install/status")
+def install_cases_status():
+    return cases_svc.install_status()
+
+
+@app.get("/api/cases/{name}/cover")
+def case_cover(name: str):
+    try:
+        return FileResponse(cases_svc.case_cover(name), media_type="video/mp4")
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail=str(exc)[:200])
+
+
+@app.post("/api/cases/{name}/import")
+def import_case(name: str, body: dict | None = None):
+    body = body or {}
+    try:
+        return cases_svc.import_case(name, body.get("project"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)[:300])
 
 
 @app.get("/api/jobs/{job_id}/events")

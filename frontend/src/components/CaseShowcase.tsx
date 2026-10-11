@@ -1,9 +1,9 @@
-import { Copy, Play } from 'lucide-react'
-import { useMemo, useRef, useState } from 'react'
+import { CloudDownload, Copy, Play } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
-import { useDuplicateProject, useJobs } from '../api/queries'
-import type { Job } from '../api/types'
-import { CASES, type CaseItem } from '../cases/showcase'
+import { qk, useCases, useImportCase, useInstallCases } from '../api/queries'
+import type { CaseInfo, CasesInstallStatus } from '../api/types'
 import { toast } from '../store/toast'
 import { Button } from './ui/Button'
 import { Modal } from './ui/Modal'
@@ -19,7 +19,6 @@ function CaseCard({
   onOpen: () => void
 }) {
   const ref = useRef<HTMLVideoElement>(null)
-
   return (
     <button
       type="button"
@@ -45,7 +44,7 @@ function CaseCard({
         />
       ) : (
         <span className="grid h-full w-full place-items-center text-xs text-dim">
-          暂无成片
+          暂无演示视频
         </span>
       )}
       <span className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/70 via-black/0 to-black/0" />
@@ -62,33 +61,60 @@ function CaseCard({
 }
 
 export function CaseShowcase() {
-  const { data: jobs } = useJobs(15000)
-  const dup = useDuplicateProject()
-  const [active, setActive] = useState<CaseItem | null>(null)
+  const qc = useQueryClient()
+  const { data } = useCases()
+  const install = useInstallCases()
+  const importCase = useImportCase()
+
+  const [installing, setInstalling] = useState(false)
+  const [status, setStatus] = useState<CasesInstallStatus | null>(null)
+  const [active, setActive] = useState<CaseInfo | null>(null)
   const [busy, setBusy] = useState(false)
 
-  // 各分组最新的一条成功成片（source = 'latest' 的案例用它）
-  const latestByProject = useMemo(() => {
-    const map: Record<string, Job> = {}
-    for (const j of jobs ?? []) {
-      if (j.state !== 'success' || !j.videoUrl) continue
-      const p = j.project || ''
-      if (!map[p] || (j.createdAt ?? 0) > (map[p].createdAt ?? 0)) map[p] = j
+  // 下载中轮询进度
+  useEffect(() => {
+    if (!installing) return
+    let stop = false
+    const tick = async () => {
+      try {
+        const s = await api.casesInstallStatus()
+        if (stop) return
+        setStatus(s)
+        if (s.state === 'done') {
+          setInstalling(false)
+          qc.invalidateQueries({ queryKey: qk.cases })
+          toast.success('案例已就绪')
+        } else if (s.state === 'error') {
+          setInstalling(false)
+          toast.error(`案例下载失败：${s.error}`)
+        } else {
+          window.setTimeout(tick, 1500)
+        }
+      } catch {
+        window.setTimeout(tick, 2000)
+      }
     }
-    return map
-  }, [jobs])
+    void tick()
+    return () => {
+      stop = true
+    }
+  }, [installing, qc])
 
-  function srcFor(c: CaseItem) {
-    if (c.source === 'case') return api.caseVideo(c.name)
-    const j = latestByProject[c.name]
-    return j ? api.videoUrl(j.id) : ''
+  async function onInstall() {
+    setInstalling(true)
+    setStatus({ state: 'downloading', progress: 0, error: '' })
+    try {
+      await install.mutateAsync()
+    } catch (e) {
+      setInstalling(false)
+      toast.error(`下载失败：${(e as Error).message}`)
+    }
   }
 
-  async function onCopy() {
-    if (!active) return
+  async function onImport(c: CaseInfo) {
     setBusy(true)
     try {
-      const r = await dup.mutateAsync({ source: active.name })
+      const r = await importCase.mutateAsync({ name: c.name })
       toast.success(`已复制到记录 · 分组「${r.project}」（${r.count} 条）`)
       setActive(null)
     } catch (e) {
@@ -98,8 +124,7 @@ export function CaseShowcase() {
     }
   }
 
-  if (CASES.length === 0) return null
-  const activeSrc = active ? srcFor(active) : ''
+  const items = data?.items ?? []
 
   return (
     <section className="flex flex-col gap-3">
@@ -108,16 +133,40 @@ export function CaseShowcase() {
         <span className="text-xs text-dim">悬停预览 · 点击播放</span>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {CASES.map((c) => (
-          <CaseCard
-            key={c.name}
-            name={c.name}
-            src={srcFor(c)}
-            onOpen={() => setActive(c)}
-          />
-        ))}
-      </div>
+      {data && !data.installed ? (
+        <div className="flex flex-col items-center gap-3 rounded-3xl border border-dashed border-line px-4 py-10 text-center">
+          <CloudDownload size={22} className="text-dim" />
+          <div className="text-sm text-ink">案例需要先下载一次（约几十 MB）</div>
+          <div className="text-xs text-dim">
+            下载后存在本地，之后离线可用，升级软件不会重复下载
+          </div>
+          {installing ? (
+            <div className="flex items-center gap-2 text-xs text-dim">
+              <Spinner className="h-4 w-4" />
+              正在下载 {status?.progress ?? 0}%
+            </div>
+          ) : (
+            <Button variant="primary" onClick={() => void onInstall()}>
+              <CloudDownload size={14} /> 下载案例
+            </Button>
+          )}
+        </div>
+      ) : items.length === 0 ? (
+        <div className="grid place-items-center rounded-3xl border border-dashed border-line px-4 py-10 text-sm text-dim">
+          暂无案例
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {items.map((c) => (
+            <CaseCard
+              key={c.name}
+              name={c.name}
+              src={c.hasCover ? api.caseCoverUrl(c.name) : ''}
+              onOpen={() => setActive(c)}
+            />
+          ))}
+        </div>
+      )}
 
       <Modal
         open={!!active}
@@ -125,21 +174,17 @@ export function CaseShowcase() {
         title={active?.name ?? ''}
         width={760}
         footer={
-          <Button
-            variant="primary"
-            disabled={busy}
-            onClick={() => void onCopy()}
-          >
+          <Button variant="primary" disabled={busy} onClick={() => active && void onImport(active)}>
             {busy ? <Spinner className="h-3.5 w-3.5" /> : <Copy size={13} />} 复制项目
           </Button>
         }
       >
         {active &&
-          (activeSrc ? (
+          (active.hasCover ? (
             <div className="flex h-[clamp(240px,56vh,520px)] items-center justify-center overflow-hidden rounded-2xl bg-black">
               <video
-                key={activeSrc}
-                src={activeSrc}
+                key={active.name}
+                src={api.caseCoverUrl(active.name)}
                 controls
                 autoPlay
                 className="h-full w-full object-contain"
@@ -147,7 +192,7 @@ export function CaseShowcase() {
             </div>
           ) : (
             <div className="grid h-48 place-items-center rounded-2xl border border-dashed border-line text-sm text-dim">
-              该分组暂无可展示成片
+              暂无演示视频
             </div>
           ))}
       </Modal>

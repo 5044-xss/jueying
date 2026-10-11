@@ -8,6 +8,7 @@ export const qk = {
   catalog: ['catalog'] as const,
   assets: ['assets'] as const,
   jobs: ['jobs'] as const,
+  cases: ['cases'] as const,
   job: (id: string) => ['job', id] as const,
 }
 
@@ -113,6 +114,27 @@ export function useDuplicateProject() {
   return useMutation({
     mutationFn: ({ source, name }: { source: string; name?: string }) =>
       api.duplicateProject(source, name),
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.jobs }),
+  })
+}
+
+export function useCases() {
+  return useQuery({ queryKey: qk.cases, queryFn: () => api.cases() })
+}
+
+export function useInstallCases() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.installCases(),
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.cases }),
+  })
+}
+
+export function useImportCase() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ name, project }: { name: string; project?: string }) =>
+      api.importCase(name, project),
     onSuccess: () => qc.invalidateQueries({ queryKey: qk.jobs }),
   })
 }

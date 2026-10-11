@@ -1,6 +1,9 @@
 import type {
   Asset,
   AssetKind,
+  CaseImportResult,
+  CasesInstallStatus,
+  CasesList,
   Catalog,
   CloudConfig,
   CreateJobBody,
@@ -82,6 +85,19 @@ export const api = {
     request<{ ok: boolean; project: string; count: number }>(
       '/api/projects/duplicate',
       json('POST', { source, name }),
+    ),
+
+  cases: () => request<CasesList>('/api/cases'),
+  installCases: () =>
+    request<CasesInstallStatus>('/api/cases/install', { method: 'POST' }),
+  casesInstallStatus: () =>
+    request<CasesInstallStatus>('/api/cases/install/status'),
+  caseCoverUrl: (name: string) =>
+    `${apiBase}/api/cases/${encodeURIComponent(name)}/cover`,
+  importCase: (name: string, project?: string) =>
+    request<CaseImportResult>(
+      `/api/cases/${encodeURIComponent(name)}/import`,
+      json('POST', { project }),
     ),
   caseVideo: (name: string) =>
     `${apiBase}/api/cases/${encodeURIComponent(name)}/video`,

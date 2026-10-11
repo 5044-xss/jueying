@@ -586,6 +586,17 @@ def get_job_raw(job_id):
         return JOBS.get(job_id)
 
 
+def add_record(job):
+    """把一条完整 job 记录写入内存（供案例导入等构造历史条目）。"""
+    with _JOBS_LOCK:
+        JOBS[job["id"]] = job
+
+
+def save():
+    """把当前任务快照落盘。"""
+    _save_jobs()
+
+
 def list_jobs():
     with _JOBS_LOCK:
         items = list(JOBS.values())

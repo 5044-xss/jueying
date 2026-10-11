@@ -46,6 +46,29 @@ export interface UpdateJobBody {
   project?: string
 }
 
+export interface CaseInfo {
+  name: string
+  hasCover: boolean
+  shots: number
+}
+
+export interface CasesList {
+  installed: boolean
+  items: CaseInfo[]
+}
+
+export interface CasesInstallStatus {
+  state: 'idle' | 'downloading' | 'done' | 'error'
+  progress: number
+  error: string
+}
+
+export interface CaseImportResult {
+  ok: boolean
+  project: string
+  count: number
+}
+
 export type AssetKind = 'image' | 'audio'
 
 export interface Asset {

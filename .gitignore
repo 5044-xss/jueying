@@ -7,6 +7,7 @@ release/
 # 运行时数据（含密钥）不入库
 backend/config.json
 backend/data/
+backend/cases/
 
 # 日志
 *.log

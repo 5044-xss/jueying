@@ -73,6 +73,9 @@ if (spawnSync('gh auth status', { shell: true, cwd: root, stdio: 'ignore' }).sta
 // 构建：后端 exe + 前端 + electron-builder（产出 release/）
 sh('npm run package')
 
+// 导出案例包 cases.zip（随 Release 一起上传，供客户端首次下载）
+sh('node scripts/export-cases.mjs')
+
 // 提交版本改动 + 打 tag + 推送
 if (shOut('git status --porcelain')) {
   sh('git add -A')
@@ -88,8 +91,9 @@ const assets = fs.existsSync(relDir)
   ? fs
       .readdirSync(relDir)
       .filter((f) => {
-        // latest.yml / *.yml 等更新元数据不带版本号，必须一起上传（自动更新依赖它）
+        // latest.yml / *.yml 等更新元数据 + cases.zip 不带版本号，必须一起上传
         if (/\.(yml|yaml)$/i.test(f)) return true
+        if (/^cases\.zip$/i.test(f)) return true
         if (/\.(exe|blockmap)$/i.test(f)) return f.includes(pkg.version)
         return false
       })

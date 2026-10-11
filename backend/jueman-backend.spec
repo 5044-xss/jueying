@@ -19,6 +19,7 @@ ROOT = os.path.dirname(os.path.abspath(SPEC))
 hiddenimports = [
     "jueman",
     "jueman.api",
+    "jueman.cases",
     "jueman.config",
     "jueman.jobs",
     "jueman.models",

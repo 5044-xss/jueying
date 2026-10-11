@@ -4,8 +4,24 @@ export interface CheckUpdateResult {
   latest?: string
   url?: string | null
   hasUpdate?: boolean
+  canUpdate?: boolean
   note?: string
   error?: string
+}
+
+export type UpdatePhase =
+  | 'checking'
+  | 'available'
+  | 'none'
+  | 'downloading'
+  | 'downloaded'
+  | 'error'
+
+export interface UpdateStatus {
+  phase: UpdatePhase
+  percent?: number
+  version?: string
+  message?: string
 }
 
 export interface JuemanBridge {
@@ -24,6 +40,8 @@ export interface JuemanBridge {
     platform: string
   }>
   checkUpdate: () => Promise<CheckUpdateResult>
+  startUpdate: () => Promise<{ ok: boolean; error?: string }>
+  onUpdateStatus: (cb: (s: UpdateStatus) => void) => () => void
 }
 
 export interface LicenseAPI {

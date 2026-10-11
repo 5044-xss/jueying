@@ -19,6 +19,12 @@ contextBridge.exposeInMainWorld('jueman', {
   openExternal: (url) => ipcRenderer.invoke('jueman:open-external', url),
   info: () => ipcRenderer.invoke('jueman:info'),
   checkUpdate: () => ipcRenderer.invoke('update:check'),
+  startUpdate: () => ipcRenderer.invoke('update:start'),
+  onUpdateStatus: (cb) => {
+    const handler = (_e, data) => cb(data)
+    ipcRenderer.on('update:status', handler)
+    return () => ipcRenderer.removeListener('update:status', handler)
+  },
 })
 
 contextBridge.exposeInMainWorld('licenseAPI', {

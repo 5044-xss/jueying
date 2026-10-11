@@ -3,12 +3,13 @@ import { useEffect, useState } from 'react'
 import { z } from 'zod'
 import { useCatalog, useSaveSettings, useSettings, useTestCloud } from '../api/queries'
 import type { Catalog, Settings, TestResult } from '../api/types'
-import type { CheckUpdateResult } from '../global'
+import type { CheckUpdateResult, UpdateStatus } from '../global'
 import { ModelSelect } from '../components/ModelSelect'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
 import { Card, CardTitle } from '../components/ui/Card'
 import { Spinner } from '../components/ui/Spinner'
+import { cn } from '../lib/utils'
 import { toast } from '../store/toast'
 
 const cloudSchema = z
@@ -70,7 +71,24 @@ export function SettingsPage() {
   const [appVersion, setAppVersion] = useState('')
   const [checking, setChecking] = useState(false)
   const [updateResult, setUpdateResult] = useState<CheckUpdateResult | null>(null)
+  const [updating, setUpdating] = useState(false)
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null)
   const isDesktop = typeof window !== 'undefined' && !!window.licenseAPI
+
+  useEffect(() => {
+    const off = window.jueman?.onUpdateStatus?.((s) => {
+      setUpdateStatus(s)
+      if (s.phase === 'error') {
+        setUpdating(false)
+        toast.error(`更新失败：${s.message ?? '未知错误'}`)
+      } else if (s.phase === 'downloading' || s.phase === 'downloaded') {
+        setUpdating(true)
+      }
+    })
+    return () => {
+      off?.()
+    }
+  }, [])
 
   useEffect(() => {
     if (!window.licenseAPI) return
@@ -110,6 +128,23 @@ export function SettingsPage() {
       toast.error('检查更新失败')
     } finally {
       setChecking(false)
+    }
+  }
+
+  async function startUpdate() {
+    if (!window.jueman?.startUpdate) return
+    setUpdating(true)
+    setUpdateStatus({ phase: 'checking' })
+    try {
+      const r = await window.jueman.startUpdate()
+      if (!r.ok) {
+        setUpdating(false)
+        toast.error(`更新失败：${r.error ?? '未知错误'}`)
+      }
+      // 成功后进入下载，进度/完成通过 onUpdateStatus 推送；下载完成会自动重启安装
+    } catch (e) {
+      setUpdating(false)
+      toast.error(`更新失败：${(e as Error).message}`)
     }
   }
 
@@ -458,17 +493,31 @@ export function SettingsPage() {
             </div>
 
             <div className="mt-4 flex flex-wrap items-center gap-3">
-              <Button onClick={checkUpdate} disabled={checking}>
+              <Button onClick={checkUpdate} disabled={checking || updating}>
                 <RefreshCw size={14} className={checking ? 'animate-spin' : ''} /> 检查更新
               </Button>
-              {updateResult?.hasUpdate && updateResult.url && (
-                <Button
-                  variant="primary"
-                  onClick={() => window.jueman?.openExternal(updateResult.url!)}
-                >
-                  <Download size={14} /> 前往下载 v{updateResult.latest}
-                </Button>
-              )}
+              {updateResult?.hasUpdate &&
+                (updateResult.canUpdate ? (
+                  <Button
+                    variant="primary"
+                    onClick={startUpdate}
+                    disabled={updating}
+                  >
+                    {updating ? (
+                      <Spinner className="h-4 w-4" />
+                    ) : (
+                      <Download size={14} />
+                    )}{' '}
+                    立即更新{updateResult.latest ? ` v${updateResult.latest}` : ''}
+                  </Button>
+                ) : updateResult.url ? (
+                  <Button
+                    variant="primary"
+                    onClick={() => window.jueman?.openExternal(updateResult.url!)}
+                  >
+                    <Download size={14} /> 前往下载 v{updateResult.latest}
+                  </Button>
+                ) : null)}
               {updateResult?.ok && !updateResult.hasUpdate && (
                 <span className="flex items-center gap-1.5 text-xs text-ok">
                   <CheckCircle2 size={14} /> {updateResult.note ?? '已是最新版本'}
@@ -479,7 +528,29 @@ export function SettingsPage() {
                   <XCircle size={14} /> {updateResult.error}
                 </span>
               )}
+              {updateStatus && (
+                <span
+                  className={cn(
+                    'flex items-center gap-1.5 text-xs',
+                    updateStatus.phase === 'error' ? 'text-err' : 'text-dim',
+                  )}
+                >
+                  {updateStatus.phase === 'checking' && '正在准备更新…'}
+                  {updateStatus.phase === 'available' && '发现新版本，开始下载…'}
+                  {updateStatus.phase === 'downloading' &&
+                    `正在下载 ${updateStatus.percent ?? 0}%`}
+                  {updateStatus.phase === 'downloaded' &&
+                    '下载完成，正在重启安装…'}
+                  {updateStatus.phase === 'error' &&
+                    `更新失败：${updateStatus.message ?? ''}`}
+                </span>
+              )}
             </div>
+            {!isDesktop && (
+              <p className="mt-2 text-xs text-dim/70">
+                自动更新仅在桌面安装版可用；开发模式或无桌面环境时请手动下载。
+              </p>
+            )}
 
             <p className="mt-2 text-xs text-dim/70">
               授权为「一码一机」，更换硬件需重新激活。重新激活会退出当前界面并回到激活页。

@@ -87,7 +87,12 @@ const relDir = path.join(root, 'release')
 const assets = fs.existsSync(relDir)
   ? fs
       .readdirSync(relDir)
-      .filter((f) => /\.(exe|blockmap|yml)$/i.test(f) && f.includes(pkg.version))
+      .filter((f) => {
+        // latest.yml / *.yml 等更新元数据不带版本号，必须一起上传（自动更新依赖它）
+        if (/\.(yml|yaml)$/i.test(f)) return true
+        if (/\.(exe|blockmap)$/i.test(f)) return f.includes(pkg.version)
+        return false
+      })
       .map((f) => `"release/${f}"`)
   : []
 const note = notes || `掘影 ${tag}`

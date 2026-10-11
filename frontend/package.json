@@ -13,7 +13,7 @@
     "dev:electron": "concurrently -k -n vite,electron -c cyan,magenta \"npm:dev\" \"npm:electron\"",
     "build": "tsc -b && vite build",
     "build:backend": "node scripts/build-backend.mjs",
-    "package": "npm run build:backend && npm run build && electron-builder",
+    "package": "npm run build:backend && npm run build && electron-builder --publish never",
     "package:dir": "npm run build:backend && npm run build && electron-builder --dir",
     "release": "node scripts/release.mjs",
     "preview": "vite preview",
@@ -25,6 +25,7 @@
     "@hookform/resolvers": "^5.9.1",
     "@tanstack/react-query": "^5.104.1",
     "clsx": "^2.1.1",
+    "electron-updater": "^6.8.9",
     "framer-motion": "^14.0.0",
     "lucide-react": "^1.54.0",
     "react": "^19.2.8",
@@ -58,12 +59,29 @@
     "directories": {
       "output": "release"
     },
-    "files": ["dist/**", "electron/**", "package.json"],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "5044-xss",
+        "repo": "jueying"
+      }
+    ],
+    "files": [
+      "dist/**",
+      "electron/**",
+      "package.json"
+    ],
     "extraResources": [
-      { "from": "resources/backend", "to": "backend" }
+      {
+        "from": "resources/backend",
+        "to": "backend"
+      }
     ],
     "win": {
-      "target": ["nsis", "portable"],
+      "target": [
+        "nsis",
+        "portable"
+      ],
       "icon": "public/app-icon.png"
     },
     "nsis": {

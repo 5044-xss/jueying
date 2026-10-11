@@ -8,6 +8,7 @@ const { spawn, execFile } = require('node:child_process')
 
 const { getMachineCode } = require('./machine-id.cjs')
 const { verifyLicense, loadLicense, saveLicense, clearLicense } = require('./license.cjs')
+const { autoUpdater } = require('electron-updater')
 
 const isDev = !app.isPackaged
 const DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL || null
@@ -305,9 +306,10 @@ ipcMain.handle('license:reset', () => {
   return { ok: true }
 })
 
-// —— 更新检查（读取 GitHub Releases 最新 tag，仅提示+跳转下载）——
+// —— 更新检查（读取 GitHub Releases 最新 tag）——
 ipcMain.handle('update:check', async () => {
   const current = app.getVersion()
+  const canUpdate = app.isPackaged
   try {
     const res = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, {
       headers: {
@@ -317,13 +319,13 @@ ipcMain.handle('update:check', async () => {
     })
     // 404：仓库尚无任何 Release，视为「暂无更新」。
     if (res.status === 404) {
-      return { ok: true, current, latest: current, url: null, hasUpdate: false, note: '暂无发布版本' }
+      return { ok: true, current, latest: current, url: null, hasUpdate: false, canUpdate, note: '暂无发布版本' }
     }
     // 403/429：GitHub 未授权接口限流，属临时状况。
     if (res.status === 403 || res.status === 429) {
-      return { ok: false, error: '检查太频繁了，请稍后再试' }
+      return { ok: false, canUpdate, error: '检查太频繁了，请稍后再试' }
     }
-    if (!res.ok) return { ok: false, error: `检查更新失败（HTTP ${res.status}）` }
+    if (!res.ok) return { ok: false, canUpdate, error: `检查更新失败（HTTP ${res.status}）` }
     const data = await res.json()
     const latest = String(data.tag_name || '').replace(/^v/i, '')
     return {
@@ -332,11 +334,73 @@ ipcMain.handle('update:check', async () => {
       latest,
       url: data.html_url,
       hasUpdate: compareVersions(latest, current) > 0,
+      canUpdate,
     }
   } catch {
-    return { ok: false, error: '网络异常，请稍后再试' }
+    return { ok: false, canUpdate, error: '网络异常，请稍后再试' }
   }
 })
+
+// —— 自动更新（electron-updater）：点击「立即更新」→ 下载 → 自动重启安装 ——
+let updaterReady = false
+
+function sendUpdateStatus(payload) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('update:status', payload)
+  }
+}
+
+function ensureUpdater() {
+  if (updaterReady) return
+  updaterReady = true
+  autoUpdater.autoDownload = false
+  autoUpdater.autoInstallOnAppQuit = true
+  try {
+    autoUpdater.setFeedURL({ provider: 'github', owner: '5044-xss', repo: 'jueying' })
+  } catch (e) {
+    log(`setFeedURL failed: ${e.message}`)
+  }
+  autoUpdater.on('checking-for-update', () => sendUpdateStatus({ phase: 'checking' }))
+  autoUpdater.on('update-available', (info) =>
+    sendUpdateStatus({ phase: 'available', version: info && info.version }),
+  )
+  autoUpdater.on('update-not-available', () => sendUpdateStatus({ phase: 'none' }))
+  autoUpdater.on('download-progress', (p) =>
+    sendUpdateStatus({ phase: 'downloading', percent: Math.round((p && p.percent) || 0) }),
+  )
+  autoUpdater.on('update-downloaded', (info) => {
+    sendUpdateStatus({ phase: 'downloaded', version: info && info.version })
+    // 留一点时间让界面提示，然后自动退出并安装新版本
+    setTimeout(() => {
+      try {
+        autoUpdater.quitAndInstall(false, true)
+      } catch (e) {
+        log(`quitAndInstall failed: ${e.message}`)
+      }
+    }, 1200)
+  })
+  autoUpdater.on('error', (err) =>
+    sendUpdateStatus({ phase: 'error', message: String((err && err.message) || err) }),
+  )
+}
+
+async function startUpdate() {
+  if (!app.isPackaged) {
+    return { ok: false, error: '开发模式不支持自动更新，请在安装版中使用' }
+  }
+  try {
+    ensureUpdater()
+    await autoUpdater.checkForUpdates()
+    await autoUpdater.downloadUpdate()
+    return { ok: true }
+  } catch (e) {
+    const msg = String((e && e.message) || e)
+    sendUpdateStatus({ phase: 'error', message: msg })
+    return { ok: false, error: msg }
+  }
+}
+
+ipcMain.handle('update:start', () => startUpdate())
 
 function compareVersions(a, b) {
   const pa = String(a).split('.').map((n) => parseInt(n, 10) || 0)

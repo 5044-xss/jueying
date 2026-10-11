@@ -1,7 +1,25 @@
 import { create } from 'zustand'
-import type { JobForm } from '../api/types'
+import type { CreateJobBody, JobForm } from '../api/types'
+import type { JobMeta } from '../lib/jobMeta'
 
 export type View = 'generator' | 'settings' | 'history'
+export type GenMode = 'reference' | 'frames'
+
+export interface QueuedJob {
+  key: string
+  body: CreateJobBody
+  meta: JobMeta
+}
+
+const DEFAULT_FORM: JobForm = {
+  title: 'clip',
+  duration: 8,
+  aspect: '16:9',
+  resolution: '0.5',
+  seed: 0,
+  samplerMode: '',
+  modelVariant: 'auto',
+}
 
 interface DraftState {
   view: View
@@ -15,6 +33,20 @@ interface DraftState {
   prompt: string
   currentJobId: string | null
   pendingForm: Partial<JobForm> | null
+
+  // 生成参数：放在 store 里，切换页面/回到生成台不重置
+  form: JobForm
+  formReady: boolean
+  mode: GenMode
+  setForm: (patch: Partial<JobForm>) => void
+  setFormReady: (v: boolean) => void
+  setMode: (m: GenMode) => void
+
+  // 生成中提交的任务先挂起，等当前任务彻底结束后依次发起
+  queue: QueuedJob[]
+  enqueue: (q: QueuedJob) => void
+  removeQueued: (key: string) => void
+  shiftQueue: () => QueuedJob | undefined
 
   setPrompt: (p: string) => void
   setCurrentJobId: (id: string | null) => void
@@ -53,6 +85,24 @@ export const useUI = create<DraftState>((set, get) => ({
   prompt: '',
   currentJobId: null,
   pendingForm: null,
+
+  form: { ...DEFAULT_FORM },
+  formReady: false,
+  mode: 'reference',
+  setForm: (patch) => set((s) => ({ form: { ...s.form, ...patch } })),
+  setFormReady: (v) => set({ formReady: v }),
+  setMode: (m) => set({ mode: m }),
+
+  queue: [],
+  enqueue: (q) => set((s) => ({ queue: [...s.queue, q] })),
+  removeQueued: (key) =>
+    set((s) => ({ queue: s.queue.filter((x) => x.key !== key) })),
+  shiftQueue: () => {
+    const q = get().queue
+    if (q.length === 0) return undefined
+    set({ queue: q.slice(1) })
+    return q[0]
+  },
 
   setPrompt: (p) => set({ prompt: p }),
   setCurrentJobId: (id) => set({ currentJobId: id }),

@@ -2,7 +2,7 @@
 
   jueman-backend.exe
 
-构建（在 jue-man 后端目录）：
+构建（在 backend 后端目录）：
   pip install pyinstaller
   pyinstaller jueman-backend.spec
   拷贝 dist\\jueman-backend.exe 到 resources\\backend\\jueman-backend.exe

@@ -1,4 +1,4 @@
-// 与 jue-man 后端契约的类型定义（见 DESKTOP-PLAN.md 第 11 节）。
+// 与后端契约的类型定义（见 DESKTOP-PLAN.md 第 11 节）。
 
 export type JobState = 'running' | 'queued' | 'success' | 'error' | 'cancelled'
 
@@ -17,6 +17,13 @@ export interface JobParams {
   lastNo?: number
 }
 
+export interface JobInputs {
+  images?: string[]
+  audios?: string[]
+  firstFrame?: string | null
+  lastFrame?: string | null
+}
+
 export interface Job {
   id: string
   state: JobState
@@ -29,7 +36,14 @@ export interface Job {
   error: string
   params: JobParams
   prompt: string
+  inputs?: JobInputs
+  project?: string
   videoUrl: string
+}
+
+export interface UpdateJobBody {
+  name?: string
+  project?: string
 }
 
 export type AssetKind = 'image' | 'audio'

@@ -8,6 +8,7 @@ import type {
   Job,
   Settings,
   TestResult,
+  UpdateJobBody,
 } from './types'
 
 // 生产/Electron 用注入端口（http://127.0.0.1:<port>）；纯浏览器 dev 用空串走 Vite proxy。
@@ -72,6 +73,18 @@ export const api = {
   jobs: () => request<Job[]>('/api/jobs'),
   job: (id: string) => request<Job>(`/api/jobs/${id}`),
   cancel: (id: string) => request<Job>(`/api/jobs/${id}/cancel`, { method: 'POST' }),
+  updateJob: (id: string, body: UpdateJobBody) =>
+    request<Job>(`/api/jobs/${id}`, json('PATCH', body)),
+  deleteJob: (id: string) =>
+    request<{ ok: boolean; id: string }>(`/api/jobs/${id}`, { method: 'DELETE' }),
+
+  duplicateProject: (source: string, name?: string) =>
+    request<{ ok: boolean; project: string; count: number }>(
+      '/api/projects/duplicate',
+      json('POST', { source, name }),
+    ),
+  caseVideo: (name: string) =>
+    `${apiBase}/api/cases/${encodeURIComponent(name)}/video`,
 
   assetUrl: (id: string) => `${apiBase}/api/assets/${id}`,
   videoUrl: (id: string) => `${apiBase}/api/jobs/${id}/video`,

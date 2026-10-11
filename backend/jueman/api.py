@@ -46,6 +46,85 @@ _IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
 _AUDIO_EXT = {".mp3", ".wav", ".m4a", ".ogg", ".aac", ".flac"}
 
 
+def _assets_path():
+    """素材登记表：HOME/data/assets.json（跨重启保留）。"""
+    d = os.path.join(config.HOME, "data")
+    try:
+        os.makedirs(d, exist_ok=True)
+    except Exception:
+        pass
+    return os.path.join(d, "assets.json")
+
+
+def _save_assets():
+    try:
+        with _ASSETS_LOCK:
+            payload = json.dumps(_ASSETS, ensure_ascii=False)
+        p = _assets_path()
+        tmp = p + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.write(payload)
+        os.replace(tmp, p)
+    except Exception:
+        pass
+
+
+def _load_assets():
+    try:
+        with open(_assets_path(), "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except Exception:
+        return
+    if isinstance(data, dict):
+        for k, v in data.items():
+            if isinstance(v, dict) and v.get("path") and os.path.exists(v["path"]):
+                _ASSETS[k] = v
+
+
+_load_assets()
+
+
+def _reconcile_assets():
+    """把 asset_dir 里没有登记的存量素材补进登记表（找回早期未持久化的素材）。"""
+    try:
+        asset_dir = config.run_dir(config.get().get("asset_dir") or "data/assets")
+    except Exception:
+        return
+    try:
+        names = os.listdir(asset_dir)
+    except Exception:
+        return
+    added = False
+    with _ASSETS_LOCK:
+        for fn in names:
+            ext = os.path.splitext(fn or "")[1].lower()
+            if ext not in _IMAGE_EXT and ext not in _AUDIO_EXT:
+                continue
+            aid = os.path.splitext(fn)[0]
+            if aid in _ASSETS:
+                continue
+            full = os.path.join(asset_dir, fn)
+            try:
+                if not os.path.isfile(full):
+                    continue
+                size = os.path.getsize(full)
+            except Exception:
+                continue
+            _ASSETS[aid] = {
+                "id": aid,
+                "kind": "image" if ext in _IMAGE_EXT else "audio",
+                "name": fn,
+                "path": full,
+                "size": size,
+            }
+            added = True
+    if added:
+        _save_assets()
+
+
+_reconcile_assets()
+
+
 def _ext(name):
     return os.path.splitext(name or "")[1].lower()
 
@@ -120,6 +199,7 @@ async def upload_asset(file: UploadFile = File(...), kind: str = Form("image")):
             "path": dst, "size": len(data)}
     with _ASSETS_LOCK:
         _ASSETS[aid] = info
+    _save_assets()
     return info
 
 
@@ -178,6 +258,11 @@ def create_job(body: dict):
         "lastFrame": _resolve_one(body.get("lastFrame") or body.get("last_frame")),
         "sampler_mode": body.get("samplerMode") or body.get("sampler_mode"),
         "model_variant": body.get("modelVariant") or body.get("model_variant"),
+        # 原始素材 id（供历史「载入」回显素材；上传后会被解析成路径的字段另存）
+        "input_images": body.get("images") or [],
+        "input_audios": body.get("audios") or [],
+        "input_first": body.get("firstFrame") or body.get("first_frame"),
+        "input_last": body.get("lastFrame") or body.get("last_frame"),
     }
     try:
         return jobs_svc.create_job(req)
@@ -215,6 +300,54 @@ def cancel_job(job_id: str):
         return jobs_svc.cancel_job(job_id)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)[:300])
+
+
+@app.patch("/api/jobs/{job_id}")
+def patch_job(job_id: str, body: dict):
+    """重命名（name）/ 修改项目分组（project）。"""
+    body = body or {}
+    try:
+        return jobs_svc.update_job(
+            job_id, name=body.get("name"), project=body.get("project"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)[:300])
+
+
+@app.delete("/api/jobs/{job_id}")
+def delete_job(job_id: str):
+    try:
+        return jobs_svc.delete_job(job_id)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)[:300])
+
+
+@app.post("/api/projects/duplicate")
+def duplicate_project(body: dict):
+    """把一个分组（project）的全部内容复制成一份新的可编辑项目。"""
+    body = body or {}
+    try:
+        return jobs_svc.duplicate_project(body.get("source"), body.get("name"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)[:300])
+
+
+_CASE_VIDEO_EXTS = (".mp4", ".webm", ".mov", ".mkv")
+
+
+@app.get("/api/cases/{name}/video")
+def case_video(name: str):
+    """案例演示视频：HOME/data/case/<name>/output 下的第一个视频。"""
+    safe = os.path.basename(name or "")
+    if not safe or safe in (".", ".."):
+        raise HTTPException(status_code=400, detail="非法案例名")
+    d = os.path.join(config.HOME, "data", "case", safe, "output")
+    if not os.path.isdir(d):
+        raise HTTPException(status_code=404, detail="案例目录不存在")
+    for fn in sorted(os.listdir(d)):
+        if fn.lower().endswith(_CASE_VIDEO_EXTS):
+            return FileResponse(os.path.join(d, fn), media_type="video/mp4",
+                                filename=fn)
+    raise HTTPException(status_code=404, detail="案例视频不存在")
 
 
 @app.get("/api/jobs/{job_id}/events")

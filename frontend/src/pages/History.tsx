@@ -1,14 +1,33 @@
-import { ChevronDown, Clock, Play, RefreshCw, RotateCw, X } from 'lucide-react'
-import { useState } from 'react'
-import { useCancelJob, useCreateJob, useJobs } from '../api/queries'
+import {
+  ChevronDown,
+  Clock,
+  Folder,
+  Pencil,
+  Play,
+  RefreshCw,
+  RotateCw,
+  Trash2,
+  X,
+} from 'lucide-react'
+import { useMemo, useState } from 'react'
+import {
+  useCancelJob,
+  useCreateJob,
+  useDeleteJob,
+  useJobs,
+  useUpdateJob,
+} from '../api/queries'
 import type { Job, JobForm, JobState } from '../api/types'
+import { ConfirmDialog } from '../components/ConfirmDialog'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
+import { Modal } from '../components/ui/Modal'
+import { Select } from '../components/ui/Select'
 import { Spinner } from '../components/ui/Spinner'
 import { VideoPlayer } from '../components/VideoPlayer'
 import { readJobMeta } from '../lib/jobMeta'
-import { formatTime } from '../lib/utils'
+import { cn, formatTime } from '../lib/utils'
 import { toast } from '../store/toast'
 import { useUI } from '../store/ui'
 
@@ -27,28 +46,48 @@ const stateTone = {
   cancelled: 'warn',
 } as const
 
-const PAGE_SIZE = 10
+const NEW_GROUP = '__new__'
+const ALL = '__all__'
+const NONE = '__none__'
 
 export function HistoryPage() {
   const { data: jobs, isLoading, isError, error, refetch, isFetching } = useJobs(5000)
   const cancelJob = useCancelJob()
   const createJob = useCreateJob()
+  const updateJob = useUpdateJob()
+  const deleteJob = useDeleteJob()
 
   const [expanded, setExpanded] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
-  const [page, setPage] = useState(0)
-
-  const total = jobs?.length ?? 0
-  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE))
-  const cur = Math.min(page, pageCount - 1)
-  const pageJobs = (jobs ?? []).slice(
-    cur * PAGE_SIZE,
-    cur * PAGE_SIZE + PAGE_SIZE,
-  )
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editName, setEditName] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState<Job | null>(null)
+  const [groupTarget, setGroupTarget] = useState<Job | null>(null)
+  const [groupName, setGroupName] = useState('')
+  const [renameFrom, setRenameFrom] = useState<string | null>(null)
+  const [renameTo, setRenameTo] = useState('')
+  const [projectFilter, setProjectFilter] = useState<string>(ALL)
 
   const imageOrder = useUI((s) => s.imageOrder)
   const audioIds = useUI((s) => s.audioIds)
   const setView = useUI((s) => s.setView)
+
+  const all = useMemo(() => jobs ?? [], [jobs])
+  const projects = useMemo(
+    () => Array.from(new Set(all.map((j) => j.project || '').filter(Boolean))).sort(),
+    [all],
+  )
+  const filtered = useMemo(() => {
+    if (projectFilter === ALL) return all
+    if (projectFilter === NONE) return all.filter((j) => !j.project)
+    return all.filter((j) => j.project === projectFilter)
+  }, [all, projectFilter])
+
+  const total = filtered.length
+
+  function isRunning(job: Job) {
+    return job.state === 'running' || job.state === 'queued'
+  }
 
   async function onCancel(job: Job) {
     setBusyId(job.id)
@@ -87,23 +126,17 @@ export function HistoryPage() {
   function onLoadToGenerator(job: Job) {
     const ui = useUI.getState()
     const meta = readJobMeta(job.id)
+    const inp = job.inputs || {}
+    ui.loadDraft({
+      prompt: meta?.prompt ?? job.prompt ?? '',
+      imageOrder: (inp.images?.length ? inp.images : meta?.images) ?? [],
+      audioIds: (inp.audios?.length ? inp.audios : meta?.audios) ?? [],
+      firstFrame: inp.firstFrame ?? meta?.firstFrame ?? null,
+      lastFrame: inp.lastFrame ?? meta?.lastFrame ?? null,
+    })
     if (meta) {
-      ui.loadDraft({
-        prompt: meta.prompt,
-        imageOrder: meta.images,
-        audioIds: meta.audios,
-        firstFrame: meta.firstFrame,
-        lastFrame: meta.lastFrame,
-      })
       ui.setPendingForm(meta.form)
     } else {
-      ui.loadDraft({
-        prompt: job.prompt,
-        imageOrder: [],
-        audioIds: [],
-        firstFrame: null,
-        lastFrame: null,
-      })
       const patch: Partial<JobForm> = {}
       const p = job.params || {}
       if (p.duration) patch.duration = p.duration
@@ -113,6 +146,81 @@ export function HistoryPage() {
     }
     ui.setCurrentJobId(job.id)
     setView('generator')
+  }
+
+  function startEdit(job: Job) {
+    setEditingId(job.id)
+    setEditName(job.name)
+  }
+
+  async function commitEdit(job: Job) {
+    const name = editName.trim()
+    setEditingId(null)
+    if (!name || name === job.name) return
+    try {
+      await updateJob.mutateAsync({ id: job.id, body: { name } })
+      toast.success('已重命名')
+    } catch (e) {
+      toast.error(`重命名失败：${(e as Error).message}`)
+    }
+  }
+
+  async function setGroup(job: Job, project: string) {
+    if (project === NEW_GROUP) {
+      setGroupName('')
+      setGroupTarget(job)
+      return
+    }
+    if (project === (job.project || '')) return
+    try {
+      await updateJob.mutateAsync({ id: job.id, body: { project } })
+      toast.success(project ? `已归入「${project}」` : '已移出分组')
+    } catch (e) {
+      toast.error(`分组失败：${(e as Error).message}`)
+    }
+  }
+
+  async function confirmNewGroup() {
+    const name = groupName.trim()
+    const job = groupTarget
+    setGroupTarget(null)
+    if (!name || !job) return
+    try {
+      await updateJob.mutateAsync({ id: job.id, body: { project: name } })
+      setProjectFilter(name)
+      toast.success(`已创建并归入「${name}」`)
+    } catch (e) {
+      toast.error(`分组失败：${(e as Error).message}`)
+    }
+  }
+
+  async function confirmRenameGroup() {
+    const from = renameFrom
+    const to = renameTo.trim()
+    setRenameFrom(null)
+    if (!from || !to || to === from) return
+    const affected = all.filter((j) => (j.project || '') === from)
+    if (affected.length === 0) return
+    try {
+      await Promise.all(
+        affected.map((j) =>
+          updateJob.mutateAsync({ id: j.id, body: { project: to } }),
+        ),
+      )
+      setProjectFilter(to)
+      toast.success(`分组已重命名为「${to}」`)
+    } catch (e) {
+      toast.error(`重命名分组失败：${(e as Error).message}`)
+    }
+  }
+
+  async function doDelete(job: Job) {
+    try {
+      await deleteJob.mutateAsync(job.id)
+      toast.success('已删除')
+    } catch (e) {
+      toast.error(`删除失败：${(e as Error).message}`)
+    }
   }
 
   if (isLoading) {
@@ -126,15 +234,58 @@ export function HistoryPage() {
     return <div className="text-err">加载失败：{(error as Error).message}</div>
   }
 
+  const filters: { value: string; label: string }[] = [
+    { value: NONE, label: '未分组' },
+    ...projects.map((p) => ({ value: p, label: p })),
+  ]
+
   return (
     <div className="flex w-full flex-col gap-5 pb-10">
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <h2 className="section-title">任务列表</h2>
         <Badge>{total} 条</Badge>
         <Button className="ml-auto" size="sm" onClick={() => void refetch()}>
           <RefreshCw size={13} className={isFetching ? 'animate-spin' : ''} /> 刷新
         </Button>
       </div>
+
+      {projects.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Folder size={14} className="text-dim" />
+          {filters.map((f) => (
+            <span key={f.value} className="inline-flex items-center gap-0.5">
+              <button
+                type="button"
+                onClick={() =>
+                  setProjectFilter(projectFilter === f.value ? ALL : f.value)
+                }
+                title={projectFilter === f.value ? '点击取消筛选' : undefined}
+                className={cn(
+                  'rounded-full border px-3 py-1 text-xs font-medium transition',
+                  projectFilter === f.value
+                    ? 'border-transparent bg-ink text-white'
+                    : 'border-line bg-soft text-dim hover:text-ink',
+                )}
+              >
+                {f.label}
+              </button>
+              {f.value !== NONE && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRenameTo(f.value)
+                    setRenameFrom(f.value)
+                  }}
+                  title="重命名分组"
+                  className="grid h-6 w-6 place-items-center rounded-full text-dim/60 transition hover:bg-soft hover:text-ink"
+                >
+                  <Pencil size={12} />
+                </button>
+              )}
+            </span>
+          ))}
+        </div>
+      )}
 
       {total === 0 && (
         <Card className="flex items-center gap-2 text-dim">
@@ -144,105 +295,211 @@ export function HistoryPage() {
 
       {total > 0 && (
         <>
-          <div className="flex max-h-[calc(100vh-260px)] flex-col gap-4 overflow-y-auto pr-1">
-            {pageJobs.map((job) => {
-        const p = job.params || {}
-        const running = job.state === 'running' || job.state === 'queued'
-        return (
-          <Card key={job.id} className="flex flex-col gap-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge tone={stateTone[job.state]}>{stateText[job.state]}</Badge>
-              <span className="font-semibold">{job.name}</span>
-              <span className="text-xs text-dim">
-                {p.duration ? `${p.duration}s` : ''} {p.aspect || ''}{' '}
-                {p.resolution ? `${p.resolution}MP` : ''}
-              </span>
-              <span className="text-xs text-dim/70">
-                {formatTime(job.createdAt)}
-              </span>
-              <div className="ml-auto flex items-center gap-1.5">
-                {running && (
-                  <Button
-                    size="sm"
-                    variant="danger"
-                    onClick={() => void onCancel(job)}
-                    disabled={busyId === job.id}
-                  >
-                    <X size={13} /> 取消
-                  </Button>
-                )}
-                <Button
-                  size="sm"
-                  onClick={() => void onRerun(job)}
-                  disabled={busyId === job.id}
-                  title="用当前生成台中的素材重跑"
+          <div className="flex max-h-[calc(100vh-300px)] flex-col gap-4 overflow-y-auto pr-1">
+            {filtered.map((job) => {
+              const p = job.params || {}
+              const running = isRunning(job)
+              return (
+                <Card
+                  key={job.id}
+                  className="relative flex flex-col gap-3 focus-within:z-30"
                 >
-                  <RotateCw size={13} /> 重跑
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => onLoadToGenerator(job)}
-                  title="载入提示词与任务到生成台"
-                >
-                  <Play size={13} /> 载入
-                </Button>
-                {job.state === 'success' && job.videoUrl && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() =>
-                      setExpanded(expanded === job.id ? null : job.id)
-                    }
-                  >
-                    <ChevronDown
-                      size={13}
-                      className={expanded === job.id ? 'rotate-180' : ''}
-                    />
-                    成片
-                  </Button>
-                )}
-              </div>
-            </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge tone={stateTone[job.state]}>{stateText[job.state]}</Badge>
 
-            {job.message && (
-              <div className="text-xs text-dim">{job.message}</div>
-            )}
-            {job.error && (
-              <div className="whitespace-pre-wrap rounded-2xl border border-err/30 bg-err/10 px-3.5 py-2.5 text-xs text-err">
-                {job.error}
-              </div>
-            )}
+                    {editingId === job.id ? (
+                      <input
+                        autoFocus
+                        value={editName}
+                        onChange={(e) => setEditName(e.target.value)}
+                        onBlur={() => void commitEdit(job)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') void commitEdit(job)
+                          if (e.key === 'Escape') setEditingId(null)
+                        }}
+                        className="w-40 rounded-lg border border-line bg-canvas px-2 py-1 text-sm font-semibold outline-none focus:border-acc"
+                      />
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => startEdit(job)}
+                        title="点击重命名"
+                        className="group/name inline-flex items-center gap-1 font-semibold"
+                      >
+                        {job.name}
+                        <Pencil
+                          size={12}
+                          className="text-dim/0 transition group-hover/name:text-dim"
+                        />
+                      </button>
+                    )}
 
-            {expanded === job.id && job.state === 'success' && (
-              <VideoPlayer jobId={job.id} />
-            )}
-          </Card>
-        )
+                    {job.project && (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-line bg-soft px-2 py-0.5 text-[11px] text-dim">
+                        <Folder size={11} /> {job.project}
+                      </span>
+                    )}
+
+                    <span className="text-xs text-dim">
+                      {p.duration ? `${p.duration}s` : ''} {p.aspect || ''}{' '}
+                      {p.resolution ? `${p.resolution}MP` : ''}
+                    </span>
+                    <span className="text-xs text-dim/70">
+                      {formatTime(job.createdAt)}
+                    </span>
+
+                    <div className="ml-auto flex items-center gap-1.5">
+                      <Select
+                        icon={<Folder size={12} />}
+                        value={job.project || ''}
+                        options={[
+                          { value: '', label: '未分组' },
+                          ...projects
+                            .filter((x) => x !== job.project)
+                            .map((x) => ({ value: x, label: x })),
+                          { value: NEW_GROUP, label: '＋ 新建分组' },
+                        ]}
+                        onChange={(v) => void setGroup(job, v)}
+                      />
+                      {running && (
+                        <Button
+                          size="sm"
+                          variant="danger"
+                          onClick={() => void onCancel(job)}
+                          disabled={busyId === job.id}
+                        >
+                          <X size={13} /> 取消
+                        </Button>
+                      )}
+                      <Button
+                        size="sm"
+                        onClick={() => void onRerun(job)}
+                        disabled={busyId === job.id}
+                        title="用当前生成台中的素材重跑"
+                      >
+                        <RotateCw size={13} /> 重跑
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => onLoadToGenerator(job)}
+                        title="把提示词与素材载入生成台重新编辑"
+                      >
+                        <Play size={13} /> 重新编辑
+                      </Button>
+                      {job.state === 'success' && job.videoUrl && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() =>
+                            setExpanded(expanded === job.id ? null : job.id)
+                          }
+                        >
+                          <ChevronDown
+                            size={13}
+                            className={expanded === job.id ? 'rotate-180' : ''}
+                          />
+                          成片
+                        </Button>
+                      )}
+                      <Button
+                        size="sm"
+                        variant="danger"
+                        onClick={() => setDeleteTarget(job)}
+                        disabled={running}
+                        title={running ? '任务进行中，无法删除' : '删除任务'}
+                      >
+                        <Trash2 size={13} />
+                      </Button>
+                    </div>
+                  </div>
+
+                  {job.message && (
+                    <div className="text-xs text-dim">{job.message}</div>
+                  )}
+                  {job.error && (
+                    <div className="whitespace-pre-wrap rounded-2xl border border-err/30 bg-err/10 px-3.5 py-2.5 text-xs text-err">
+                      {job.error}
+                    </div>
+                  )}
+
+                  {expanded === job.id && job.state === 'success' && (
+                    <VideoPlayer jobId={job.id} />
+                  )}
+                </Card>
+              )
             })}
-          </div>
-
-          <div className="flex items-center justify-center gap-3">
-            <Button
-              size="sm"
-              onClick={() => setPage(Math.max(0, cur - 1))}
-              disabled={cur === 0}
-            >
-              上一页
-            </Button>
-            <span className="text-xs text-dim">
-              第 {cur + 1} / {pageCount} 页 · 共 {total} 条
-            </span>
-            <Button
-              size="sm"
-              onClick={() => setPage(Math.min(pageCount - 1, cur + 1))}
-              disabled={cur >= pageCount - 1}
-            >
-              下一页
-            </Button>
           </div>
         </>
       )}
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        title="删除任务"
+        message={`确定删除「${deleteTarget?.name ?? ''}」吗？成片文件也会一并删除，无法恢复。`}
+        confirmText="删除"
+        danger
+        onConfirm={() => {
+          if (deleteTarget) void doDelete(deleteTarget)
+        }}
+        onCancel={() => setDeleteTarget(null)}
+      />
+
+      <Modal
+        open={!!groupTarget}
+        onClose={() => setGroupTarget(null)}
+        title="新建分组"
+        width={380}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setGroupTarget(null)}>
+              取消
+            </Button>
+            <Button variant="primary" onClick={() => void confirmNewGroup()}>
+              确定
+            </Button>
+          </>
+        }
+      >
+        <input
+          autoFocus
+          value={groupName}
+          onChange={(e) => setGroupName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') void confirmNewGroup()
+          }}
+          placeholder="分组名称，例如：项目A / 广告片"
+          className="input"
+        />
+      </Modal>
+
+      <Modal
+        open={!!renameFrom}
+        onClose={() => setRenameFrom(null)}
+        title="重命名分组"
+        width={380}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setRenameFrom(null)}>
+              取消
+            </Button>
+            <Button variant="primary" onClick={() => void confirmRenameGroup()}>
+              确定
+            </Button>
+          </>
+        }
+      >
+        <input
+          autoFocus
+          value={renameTo}
+          onChange={(e) => setRenameTo(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') void confirmRenameGroup()
+          }}
+          placeholder="新的分组名称"
+          className="input"
+        />
+      </Modal>
     </div>
   )
 }

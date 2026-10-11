@@ -3,8 +3,10 @@
 
 只用 ComfyUI 直连/SSH 路径（xgpu / autodl）。autodl_api 托管不在本版本范围。
 """
+import json
 import os
 import re
+import shutil
 import threading
 import time
 import uuid
@@ -17,6 +19,122 @@ JOBS = {}
 _JOBS_LOCK = threading.Lock()
 _RES_NODE_CACHE = {}
 _RES_NODE_LOCK = threading.Lock()
+
+
+def _jobs_path():
+    """任务持久化文件：HOME/data/jobs.json（与 output/assets 同盘）。"""
+    d = os.path.join(config.HOME, "data")
+    try:
+        os.makedirs(d, exist_ok=True)
+    except Exception:
+        pass
+    return os.path.join(d, "jobs.json")
+
+
+def _save_jobs():
+    """把任务快照原子落盘（锁内序列化，锁外写文件）。"""
+    try:
+        with _JOBS_LOCK:
+            payload = json.dumps(JOBS, ensure_ascii=False)
+        p = _jobs_path()
+        tmp = p + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.write(payload)
+        os.replace(tmp, p)
+    except Exception:
+        pass
+
+
+def _load_jobs():
+    """启动时读取历史任务；上次未结束的标记为中断，避免出现假运行态。"""
+    try:
+        with open(_jobs_path(), "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except Exception:
+        return
+    if not isinstance(data, dict):
+        return
+    changed = False
+    for jid, job in data.items():
+        if not isinstance(job, dict):
+            continue
+        if job.get("state") in ("running", "queued"):
+            job["state"] = "error"
+            job["error"] = "应用重启，任务中断"
+            job["finished_at"] = time.time()
+            changed = True
+        JOBS[jid] = job
+    if changed:
+        _save_jobs()
+
+
+_VIDEO_EXTS = (".mp4", ".webm", ".mov", ".mkv")
+
+
+def _reconcile_outputs():
+    """把 output 目录里没有对应记录的成片回填成历史条目（可播放，无提示词/参数）。
+
+    用于找回早期「只存内存、未持久化」时期生成的成片；已回填过的不会重复添加。
+    """
+    try:
+        cfg = config.get()
+        out_dir = config.run_dir(cfg.get("output_dir") or "data/output")
+    except Exception:
+        return
+
+    with _JOBS_LOCK:
+        known = {
+            os.path.normcase(os.path.abspath(j["output"]))
+            for j in JOBS.values()
+            if j.get("output")
+        }
+
+    try:
+        entries = os.listdir(out_dir)
+    except Exception:
+        return
+
+    added = False
+    for fname in entries:
+        if not fname.lower().endswith(_VIDEO_EXTS):
+            continue
+        full = os.path.join(out_dir, fname)
+        try:
+            if not os.path.isfile(full) or os.path.getsize(full) < 1024:
+                continue
+            size = os.path.getsize(full)
+            mt = os.path.getmtime(full)
+        except Exception:
+            continue
+        if os.path.normcase(os.path.abspath(full)) in known:
+            continue
+
+        stem = os.path.splitext(fname)[0]
+        # 生成时文件名形如 <name>-<id8>（id8 为 8 位十六进制）
+        m = re.match(r"^(?P<name>.*)-(?P<id>[0-9a-fA-F]{8})$", stem)
+        name = (m.group("name") if m else stem) or "clip"
+        jid = (m.group("id") if m else uuid.uuid4().hex[:8]).lower()
+        base, n = jid, 1
+        while jid in JOBS:
+            jid = "%s%02d" % (base, n)
+            n += 1
+
+        JOBS[jid] = {
+            "id": jid, "state": "success", "message": "完成",
+            "progress": {"bytes": size, "total": size},
+            "name": name, "prompt_id": "", "cloud": {},
+            "created_at": mt, "finished_at": mt,
+            "output": full, "error": "", "params": {}, "prompt": "",
+            "backfilled": True,
+        }
+        added = True
+
+    if added:
+        _save_jobs()
+
+
+_load_jobs()
+_reconcile_outputs()
 
 
 MAX_IMAGES = 8  # H3 ReferenceToVideo 图参考上限
@@ -74,7 +192,7 @@ def new_job_dict(cloud_cfg):
         "progress": {"bytes": 0, "total": 0},
         "name": "jue-man", "prompt_id": "", "cloud": dict(cloud_cfg or {}),
         "created_at": time.time(), "finished_at": None,
-        "output": "", "error": "",
+        "output": "", "error": "", "project": "",
     }
 
 
@@ -162,6 +280,7 @@ def _finish(job, state, error="", message=""):
             job["error"] = error
         if message:
             job["message"] = message
+    _save_jobs()
 
 
 def _poll_worker(job_id):
@@ -230,6 +349,7 @@ def _poll_worker(job_id):
         with _JOBS_LOCK:
             job["message"] = {"running": "生成中…", "queued": "排队中…",
                               None: "等待云端…"}.get(qs, "生成中…")
+        _save_jobs()
         time.sleep(3)
 
 
@@ -315,6 +435,12 @@ def create_job(req):
         "id": job_id, "name": name, "prompt_id": pid,
         "message": "已提交，等待云端…",
         "assets": {"images": images_remote, "audios": audios_remote},
+        "inputs": {
+            "images": list(req.get("input_images") or []),
+            "audios": list(req.get("input_audios") or []),
+            "firstFrame": req.get("input_first") or None,
+            "lastFrame": req.get("input_last") or None,
+        },
         "params": {"duration": duration, "aspect": req.get("aspect"),
                    "resolution": req.get("resolution"), "sampler_mode": sm,
                    "resolution_node": rn, "firstNo": first_no, "lastNo": last_no},
@@ -322,6 +448,7 @@ def create_job(req):
     })
     with _JOBS_LOCK:
         JOBS[job_id] = job
+    _save_jobs()
     threading.Thread(target=_poll_worker, args=(job_id,),
                      name="jueman-poll-%s" % job_id[:8], daemon=True).start()
     return public_job(job)
@@ -345,6 +472,91 @@ def cancel_job(job_id):
     return public_job(job)
 
 
+def update_job(job_id, name=None, project=None):
+    """重命名任务 / 修改所属项目分组。只动元数据，不碰成片文件。"""
+    with _JOBS_LOCK:
+        job = JOBS.get(job_id)
+        if not job:
+            raise RuntimeError("任务不存在：%s" % job_id)
+        if name is not None and str(name).strip():
+            job["name"] = _safe_name(name)
+        if project is not None:
+            job["project"] = str(project).strip()[:60]
+    _save_jobs()
+    return public_job(job)
+
+
+def delete_job(job_id):
+    """删除任务记录及其成片文件；进行中/排队中的任务不允许删除。"""
+    with _JOBS_LOCK:
+        job = JOBS.get(job_id)
+        if not job:
+            raise RuntimeError("任务不存在：%s" % job_id)
+        if job.get("state") in ("running", "queued"):
+            raise RuntimeError("任务进行中，无法删除")
+        out = job.get("output") or ""
+        JOBS.pop(job_id, None)
+    _save_jobs()
+    if out:
+        try:
+            if os.path.isfile(out):
+                os.remove(out)
+        except Exception:
+            pass
+    return {"ok": True, "id": job_id}
+
+
+def _copy_video(src, name, new_id):
+    """把成片复制一份（删除副本不影响原片）；复制失败则共享原路径。"""
+    if not src or not os.path.isfile(src):
+        return src or ""
+    ext = os.path.splitext(src)[1] or ".mp4"
+    dest = os.path.join(os.path.dirname(src), "%s-%s%s" % (_safe_name(name), new_id[:8], ext))
+    try:
+        shutil.copy2(src, dest)
+        return dest
+    except Exception:
+        return src
+
+
+def duplicate_project(source, name=None):
+    """把某个分组（project）下的全部任务复制成一份新的可编辑项目。
+
+    复制内容：提示词、参数、参考素材（inputs）、成片（视频文件另存一份）。
+    """
+    src = str(source or "").strip()
+    if not src:
+        raise RuntimeError("缺少分组名")
+    with _JOBS_LOCK:
+        items = [dict(j) for j in JOBS.values() if (j.get("project") or "") == src]
+        existing = {(j.get("project") or "") for j in JOBS.values()}
+    if not items:
+        raise RuntimeError("该分组暂无内容")
+
+    target = str(name).strip() if name else src
+    base = target
+    i = 0
+    while target in existing and target:
+        i += 1
+        target = ("%s-副本" % base) if i == 1 else ("%s-副本%d" % (base, i))
+
+    now = time.time()
+    created = []
+    for j in items:
+        new_id = uuid.uuid4().hex
+        new_job = dict(j)
+        new_job["id"] = new_id
+        new_job["project"] = target
+        new_job["output"] = _copy_video(j.get("output") or "", j.get("name") or "clip", new_id)
+        new_job["created_at"] = now
+        new_job["finished_at"] = now
+        with _JOBS_LOCK:
+            JOBS[new_id] = new_job
+        created.append(new_id)
+    _save_jobs()
+    return {"ok": True, "project": target, "count": len(created)}
+
+
 def public_job(job):
     with _JOBS_LOCK:
         j = dict(job)
@@ -356,6 +568,8 @@ def public_job(job):
         "error": j.get("error") or "",
         "params": j.get("params") or {},
         "prompt": j.get("prompt") or "",
+        "inputs": j.get("inputs") or {},
+        "project": j.get("project") or "",
         "videoUrl": ("/api/jobs/%s/video" % j.get("id")) if j.get("output") else "",
     }
     return out

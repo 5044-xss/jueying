@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './client'
-import type { CloudConfig, CreateJobBody, Settings } from './types'
+import type { CloudConfig, CreateJobBody, Job, Settings, UpdateJobBody } from './types'
 
 export const qk = {
   health: ['health'] as const,
@@ -15,7 +15,7 @@ export function useHealth() {
   return useQuery({
     queryKey: qk.health,
     queryFn: () => api.health(),
-    refetchInterval: 15000,
+    refetchInterval: 30000,
     retry: false,
   })
 }
@@ -52,11 +52,18 @@ export function useAssets() {
   return useQuery({ queryKey: qk.assets, queryFn: () => api.assets() })
 }
 
-export function useJobs(refetchInterval?: number) {
+export function useJobs(activeInterval = 5000) {
   return useQuery({
     queryKey: qk.jobs,
     queryFn: () => api.jobs(),
-    refetchInterval,
+    // 仅在有任务生成中/排队中时轮询，空闲时不再请求。
+    refetchInterval: (query) => {
+      const jobs = query.state.data as Job[] | undefined
+      const active = (jobs ?? []).some(
+        (j) => j.state === 'running' || j.state === 'queued',
+      )
+      return active ? activeInterval : false
+    },
   })
 }
 
@@ -80,6 +87,32 @@ export function useCancelJob() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (id: string) => api.cancel(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.jobs }),
+  })
+}
+
+export function useUpdateJob() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: UpdateJobBody }) =>
+      api.updateJob(id, body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.jobs }),
+  })
+}
+
+export function useDeleteJob() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.deleteJob(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.jobs }),
+  })
+}
+
+export function useDuplicateProject() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ source, name }: { source: string; name?: string }) =>
+      api.duplicateProject(source, name),
     onSuccess: () => qc.invalidateQueries({ queryKey: qk.jobs }),
   })
 }

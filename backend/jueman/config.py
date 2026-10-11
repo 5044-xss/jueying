@@ -66,7 +66,7 @@ DEFAULTS = {
     "server": {"host": "127.0.0.1", "port": 8642},
     "output_dir": "data/output",
     "asset_dir": "data/assets",
-    "job_timeout_sec": 2700,
+    "job_timeout_sec": 7200,
 }
 
 _lock = threading.Lock()

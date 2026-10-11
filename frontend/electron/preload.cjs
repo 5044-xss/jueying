@@ -18,4 +18,11 @@ contextBridge.exposeInMainWorld('jueman', {
   revealPath: (p) => ipcRenderer.invoke('jueman:reveal-path', p),
   openExternal: (url) => ipcRenderer.invoke('jueman:open-external', url),
   info: () => ipcRenderer.invoke('jueman:info'),
+  checkUpdate: () => ipcRenderer.invoke('update:check'),
+})
+
+contextBridge.exposeInMainWorld('licenseAPI', {
+  getMachineId: () => ipcRenderer.invoke('license:machine-id'),
+  activate: (code) => ipcRenderer.invoke('license:activate', code),
+  resetLicense: () => ipcRenderer.invoke('license:reset'),
 })

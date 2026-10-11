@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>掘影 · 激活</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family: "Microsoft YaHei", -apple-system, "Segoe UI", sans-serif;
+        background: #0b0e14;
+        color: #e7e7ea;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+        -webkit-user-select: none;
+        user-select: none;
+      }
+      .card {
+        width: 100%;
+        padding: 32px 36px;
+      }
+      h1 {
+        font-size: 20px;
+        margin: 0 0 6px;
+        font-weight: 600;
+      }
+      p.sub {
+        margin: 0 0 22px;
+        color: #9a9aa5;
+        font-size: 13px;
+        line-height: 1.6;
+      }
+      label {
+        display: block;
+        font-size: 12px;
+        color: #9a9aa5;
+        margin-bottom: 6px;
+      }
+      .machine {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 18px;
+      }
+      .machine code {
+        flex: 1;
+        background: #151922;
+        border: 1px solid #26262f;
+        border-radius: 8px;
+        padding: 10px 12px;
+        font-size: 14px;
+        letter-spacing: 1px;
+        color: #d7d7de;
+      }
+      button {
+        cursor: pointer;
+        border: none;
+        border-radius: 8px;
+        font-size: 13px;
+        font-family: inherit;
+      }
+      #copyBtn {
+        background: #26262f;
+        color: #d7d7de;
+        padding: 0 14px;
+      }
+      #code {
+        width: 100%;
+        background: #151922;
+        border: 1px solid #26262f;
+        border-radius: 8px;
+        padding: 12px;
+        color: #e7e7ea;
+        font-size: 13px;
+        font-family: "Consolas", monospace;
+        resize: none;
+        height: 84px;
+        outline: none;
+      }
+      #code:focus {
+        border-color: #7c5cff;
+      }
+      #activateBtn {
+        width: 100%;
+        margin-top: 16px;
+        padding: 12px;
+        background: linear-gradient(90deg, #7c5cff, #22d3ee);
+        color: #fff;
+        font-size: 14px;
+        font-weight: 600;
+      }
+      #activateBtn:disabled {
+        opacity: 0.6;
+        cursor: default;
+      }
+      #msg {
+        margin-top: 12px;
+        font-size: 12px;
+        min-height: 16px;
+        text-align: center;
+      }
+      #msg.error {
+        color: #ff6b6b;
+      }
+      #msg.ok {
+        color: #4ade80;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>激活 掘影</h1>
+      <p class="sub">
+        本机尚未激活。请将下方机器码发送给卖家，获取激活码后粘贴到下方。
+      </p>
+      <label>本机机器码</label>
+      <div class="machine">
+        <code id="machineCode">获取中…</code>
+        <button id="copyBtn" type="button">复制</button>
+      </div>
+      <label>激活码</label>
+      <textarea id="code" placeholder="粘贴激活码…"></textarea>
+      <button id="activateBtn" type="button">激活</button>
+      <div id="msg"></div>
+    </div>
+    <script>
+      const machineCodeEl = document.getElementById("machineCode");
+      const copyBtn = document.getElementById("copyBtn");
+      const codeEl = document.getElementById("code");
+      const activateBtn = document.getElementById("activateBtn");
+      const msgEl = document.getElementById("msg");
+
+      let rawCode = "";
+
+      function setMsg(text, kind) {
+        msgEl.textContent = text || "";
+        msgEl.className = kind || "";
+      }
+
+      window.licenseAPI
+        .getMachineId()
+        .then(({ code, display }) => {
+          rawCode = code;
+          machineCodeEl.textContent = display;
+        })
+        .catch(() => {
+          machineCodeEl.textContent = "获取失败";
+        });
+
+      copyBtn.addEventListener("click", () => {
+        if (rawCode) {
+          navigator.clipboard.writeText(machineCodeEl.textContent);
+          setMsg("已复制机器码", "ok");
+        }
+      });
+
+      activateBtn.addEventListener("click", async () => {
+        const value = codeEl.value.trim();
+        if (!value) {
+          setMsg("请先填入激活码", "error");
+          return;
+        }
+        activateBtn.disabled = true;
+        setMsg("校验中…");
+        try {
+          const result = await window.licenseAPI.activate(value);
+          if (result.ok) {
+            setMsg("激活成功，正在进入…", "ok");
+          } else {
+            setMsg(result.error || "激活失败", "error");
+            activateBtn.disabled = false;
+          }
+        } catch (error) {
+          setMsg(String(error), "error");
+          activateBtn.disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>

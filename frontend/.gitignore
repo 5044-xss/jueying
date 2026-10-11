@@ -17,6 +17,11 @@ release
 # PyInstaller 后端产物（单独构建）
 resources/backend/*.exe
 
+# 激活码签名私钥（切勿入库/分发），公钥内嵌于 electron/license-public.cjs
+keys/
+*.pem
+license-private*.json
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

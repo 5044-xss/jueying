@@ -23,6 +23,11 @@ __pycache__/
 venv/
 build/
 
+# 激活码签名私钥（切勿入库）
+frontend/keys/
+*.pem
+license-private*.json
+
 # 编辑器 / 系统
 .DS_Store
 Thumbs.db

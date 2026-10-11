@@ -1,4 +1,4 @@
-import { Clock, Clapperboard, Settings, Sparkles } from 'lucide-react'
+import { Clock, Settings, Sparkles } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { cn } from '../lib/utils'
 import { useUI, type View } from '../store/ui'
@@ -19,11 +19,11 @@ export function AppShell({ children }: { children: ReactNode }) {
       {/* 左侧悬浮导航轨道 */}
       <div className="drag-region relative w-[72px] shrink-0">
         <div className="drag-region fixed left-4 top-3 z-40 flex items-center gap-2.5">
-          <div className="grid h-8 w-8 place-items-center rounded-xl bg-ink text-white">
-            <Clapperboard size={16} />
+          <div className="h-8 w-8 overflow-hidden rounded-xl bg-ink">
+            <img src="app-icon.png" alt="掘影" className="h-8 w-8 object-cover" />
           </div>
           <div className="leading-tight">
-            <div className="text-sm font-bold tracking-tight">jue-man</div>
+            <div className="text-sm font-bold tracking-tight">掘影</div>
             <div className="text-[11px] text-dim">视频生成工作台</div>
           </div>
         </div>

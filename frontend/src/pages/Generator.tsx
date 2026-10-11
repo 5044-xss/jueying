@@ -5,6 +5,7 @@ import {
   Gauge,
   Image as ImageIcon,
   Layers,
+  ListOrdered,
   Music,
   Plus,
   Proportions,
@@ -22,29 +23,20 @@ import {
   useCancelJob,
   useCreateJob,
   useHealth,
-  useJobs,
   useSettings,
 } from '../api/queries'
-import type { Aspect, Job, JobForm } from '../api/types'
-import { JobProgress } from '../components/JobProgress'
+import type { Aspect, CreateJobBody, Job, JobForm } from '../api/types'
+import { CaseShowcase } from '../components/CaseShowcase'
+import { Badge } from '../components/ui/Badge'
+import { ProgressBar } from '../components/ui/ProgressBar'
 import { Select } from '../components/ui/Select'
 import { Spinner } from '../components/ui/Spinner'
 import { Tip } from '../components/ui/Tip'
 import { useJobEvents } from '../hooks/useJobEvents'
-import { saveJobMeta } from '../lib/jobMeta'
-import { cn } from '../lib/utils'
+import { saveJobMeta, type JobMeta } from '../lib/jobMeta'
+import { cn, percent } from '../lib/utils'
 import { toast } from '../store/toast'
 import { useUI } from '../store/ui'
-
-const EMPTY_FORM: JobForm = {
-  title: 'clip',
-  duration: 8,
-  aspect: '16:9',
-  resolution: '0.5',
-  seed: 0,
-  samplerMode: '',
-  modelVariant: 'auto',
-}
 
 const ASPECTS: Aspect[] = ['16:9', '9:16', '1:1', '4:3', '3:4']
 const RESOLUTIONS = ['0.4', '0.5', '1', '1.5', '2']
@@ -95,6 +87,7 @@ function resDims(res: string, aspect: Aspect): [number, number] {
   return [w, h]
 }
 
+// 把短边像素归一到用户看得懂的档位（540P / 720P / 1080P 之类）
 function friendlyP(res: string, aspect: Aspect): number {
   const short = Math.min(...resDims(res, aspect))
   const buckets = [360, 480, 540, 720, 900, 1080, 1440]
@@ -287,8 +280,10 @@ function FrameSlot({
 
 function FrameSlots({
   preview,
+  closePreview,
 }: {
   preview: (url: string, label: string) => HoverHandlers
+  closePreview: () => void
 }) {
   const firstFrame = useUI((s) => s.firstFrame)
   const lastFrame = useUI((s) => s.lastFrame)
@@ -321,7 +316,10 @@ function FrameSlots({
         id={firstFrame}
         busy={busy === 'first'}
         onPick={() => firstRef.current?.click()}
-        onClear={() => setFirstFrame(null)}
+        onClear={() => {
+          setFirstFrame(null)
+          closePreview()
+        }}
         preview={preview}
       />
       <FrameSlot
@@ -329,7 +327,10 @@ function FrameSlots({
         id={lastFrame}
         busy={busy === 'last'}
         onPick={() => lastRef.current?.click()}
-        onClear={() => setLastFrame(null)}
+        onClear={() => {
+          setLastFrame(null)
+          closePreview()
+        }}
         preview={preview}
       />
       <input
@@ -359,7 +360,6 @@ function FrameSlots({
 export function GeneratorPage() {
   const { data: settings } = useSettings()
   const { data: health } = useHealth()
-  const { data: jobs } = useJobs(15000)
   const createJob = useCreateJob()
   const cancelJob = useCancelJob()
   const qc = useQueryClient()
@@ -382,8 +382,16 @@ export function GeneratorPage() {
   const setPendingForm = useUI((s) => s.setPendingForm)
   const setView = useUI((s) => s.setView)
 
-  const [form, setForm] = useState<JobForm>(EMPTY_FORM)
-  const [mode, setMode] = useState<Mode>('reference')
+  const form = useUI((s) => s.form)
+  const setForm = useUI((s) => s.setForm)
+  const formReady = useUI((s) => s.formReady)
+  const setFormReady = useUI((s) => s.setFormReady)
+  const mode = useUI((s) => s.mode)
+  const setMode = useUI((s) => s.setMode)
+  const queue = useUI((s) => s.queue)
+  const enqueue = useUI((s) => s.enqueue)
+  const removeQueued = useUI((s) => s.removeQueued)
+
   const [created, setCreated] = useState<Job | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [uploading, setUploading] = useState(false)
@@ -405,7 +413,7 @@ export function GeneratorPage() {
   const fileRef = useRef<HTMLInputElement>(null)
   const audRef = useRef<HTMLInputElement>(null)
   const dragFrom = useRef<number | null>(null)
-  const inited = useRef(false)
+  const processingRef = useRef(false)
 
   const openPreview = (url: string, label: string) => (e: React.MouseEvent) =>
     setPreview({ url, label, x: e.clientX, y: e.clientY })
@@ -419,37 +427,28 @@ export function GeneratorPage() {
   })
 
   useEffect(() => {
-    if (!inited.current && settings) {
-      inited.current = true
-      setForm({
-        title: 'clip',
-        duration: settings.gen.duration_max || 8,
-        aspect: '16:9',
-        resolution: String(settings.gen.megapixels ?? 0.5),
-        seed: settings.gen.seed_auto ? 0 : settings.gen.seed || 0,
-        samplerMode: settings.cloud.sampler_mode || '',
-        modelVariant: 'auto',
-      })
-    }
-  }, [settings])
+    if (formReady || !settings) return
+    setFormReady(true)
+    setForm({
+      title: 'clip',
+      duration: settings.gen.duration_max || 8,
+      aspect: '16:9',
+      resolution: String(settings.gen.megapixels ?? 0.5),
+      seed: settings.gen.seed_auto ? 0 : settings.gen.seed || 0,
+      samplerMode: settings.cloud.sampler_mode || '',
+      modelVariant: 'auto',
+    })
+  }, [settings, formReady, setForm, setFormReady])
 
   // 从历史「载入」时恢复参数
   useEffect(() => {
     if (!pendingForm) return
-    inited.current = true
-    setForm((f) => ({ ...f, ...pendingForm }))
+    setFormReady(true)
+    setForm(pendingForm)
     setPendingForm(null)
-  }, [pendingForm, setPendingForm])
+  }, [pendingForm, setForm, setPendingForm, setFormReady])
 
   const { job, connected } = useJobEvents(currentJobId, created)
-
-  const lastSuccess = useMemo(() => {
-    const ok = (jobs ?? []).filter((j) => j.state === 'success' && j.videoUrl)
-    ok.sort((a, b) => b.createdAt - a.createdAt)
-    return ok[0] ?? null
-  }, [jobs])
-
-  const displayJob = job ?? lastSuccess
 
   const nameOf = (id: string) =>
     assets?.find((a) => a.id === id)?.name ?? id.slice(0, 6)
@@ -552,47 +551,75 @@ export function GeneratorPage() {
     }
   }
 
+  function clearInput() {
+    useUI.getState().loadDraft({
+      prompt: '',
+      imageOrder: [],
+      audioIds: [],
+      firstFrame: null,
+      lastFrame: null,
+    })
+    setMention(null)
+    setPreview(null)
+  }
+
+  async function submitJob(body: CreateJobBody, meta: JobMeta) {
+    const j = await createJob.mutateAsync(body)
+    setCreated(j)
+    setCurrentJobId(j.id)
+    saveJobMeta(j.id, meta)
+    return j
+  }
+
   async function onGenerate() {
     if (!prompt.trim()) {
       toast.error('请先填写提示词')
       return
     }
+    const body: CreateJobBody = {
+      prompt,
+      title: form.title || 'clip',
+      duration: form.duration,
+      aspect: form.aspect,
+      resolution: form.resolution,
+      seed: form.seed,
+      images: imageOrder,
+      audios: audioIds,
+      firstFrame,
+      lastFrame,
+      samplerMode: form.samplerMode || null,
+      modelVariant: form.modelVariant,
+    }
+    const meta: JobMeta = {
+      prompt,
+      images: imageOrder,
+      audios: audioIds,
+      firstFrame,
+      lastFrame,
+      form,
+    }
+
+    // 有任务在生成/排队中：本次提交先挂起，等当前任务彻底结束后自动发起
+    const busy =
+      job?.state === 'running' ||
+      job?.state === 'queued' ||
+      submitting ||
+      processingRef.current
+    if (busy) {
+      enqueue({
+        key: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        body,
+        meta,
+      })
+      clearInput()
+      toast.info(`当前有任务在生成，已加入队列（${useUI.getState().queue.length}）`)
+      return
+    }
+
     setSubmitting(true)
     try {
-      const j = await createJob.mutateAsync({
-        prompt,
-        title: form.title || 'clip',
-        duration: form.duration,
-        aspect: form.aspect,
-        resolution: form.resolution,
-        seed: form.seed,
-        images: imageOrder,
-        audios: audioIds,
-        firstFrame: firstFrame,
-        lastFrame: lastFrame,
-        samplerMode: form.samplerMode || null,
-        modelVariant: form.modelVariant,
-      })
-      setCreated(j)
-      setCurrentJobId(j.id)
-      saveJobMeta(j.id, {
-        prompt,
-        images: imageOrder,
-        audios: audioIds,
-        firstFrame,
-        lastFrame,
-        form,
-      })
-      // 提交后清空输入框与素材，方便直接排下一个任务（参数保留）
-      useUI.getState().loadDraft({
-        prompt: '',
-        imageOrder: [],
-        audioIds: [],
-        firstFrame: null,
-        lastFrame: null,
-      })
-      setMention(null)
-      setPreview(null)
+      await submitJob(body, meta)
+      clearInput()
       toast.success('已提交生成任务，可继续下一个')
     } catch (e) {
       toast.error(`提交失败：${(e as Error).message}`)
@@ -600,6 +627,31 @@ export function GeneratorPage() {
       setSubmitting(false)
     }
   }
+
+  // 当前任务结束后，自动发起队列中的下一个
+  useEffect(() => {
+    if (processingRef.current) return
+    const st = job?.state
+    if (!st || st === 'running' || st === 'queued') return
+    const next = useUI.getState().queue[0]
+    if (!next) return
+    processingRef.current = true
+    setSubmitting(true)
+    const timer = window.setTimeout(() => {
+      useUI.getState().shiftQueue()
+      submitJob(next.body, next.meta)
+        .then(() =>
+          toast.success(`队列任务已开始：${next.body.title || 'clip'}`),
+        )
+        .catch((e) => toast.error(`队列任务提交失败：${(e as Error).message}`))
+        .finally(() => {
+          setSubmitting(false)
+          processingRef.current = false
+        })
+    }, 0)
+    return () => window.clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [job?.id, job?.state])
 
   async function onCancel() {
     if (!currentJobId) return
@@ -638,8 +690,8 @@ export function GeneratorPage() {
         </h1>
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <span className="inline-flex items-baseline gap-1.5 rounded-2xl bg-ink px-3.5 py-1.5 text-white shadow-soft">
-            <span className="text-xs font-medium text-white/70">低至</span>
-            <span className="text-2xl font-extrabold tracking-tight">¥0.01</span>
+            <span className="text-xs font-medium text-white/70">最低至</span>
+            <span className="text-2xl font-extrabold tracking-tight">¥0.008</span>
             <span className="text-xs font-medium text-white/70">/秒</span>
           </span>
           <span className="text-sm font-medium text-ink/75">
@@ -663,7 +715,7 @@ export function GeneratorPage() {
       )}
 
       {/* 输入框（素材 + 参数都在里面） */}
-      <div className="rounded-[28px] border border-line/70 bg-canvas/55 p-4 shadow-soft backdrop-blur-xl sm:p-5">
+      <div className="relative z-20 rounded-[28px] border border-line/70 bg-canvas/55 p-4 shadow-soft backdrop-blur-xl sm:p-5">
         <div className="flex flex-col gap-3">
           {/* 素材 */}
           <div className="flex flex-wrap items-center gap-2">
@@ -703,7 +755,10 @@ export function GeneratorPage() {
                     </span>
                     <button
                       type="button"
-                      onClick={() => removeImage(id)}
+                      onClick={() => {
+                        removeImage(id)
+                        setPreview(null)
+                      }}
                       title="移除"
                       className="absolute right-1 top-1 grid h-5 w-5 place-items-center rounded-full bg-ink/70 text-white transition hover:bg-err"
                     >
@@ -725,7 +780,7 @@ export function GeneratorPage() {
                 </button>
               </>
             ) : (
-              <FrameSlots preview={previewHandlers} />
+              <FrameSlots preview={previewHandlers} closePreview={closePreview} />
             )}
 
             <button
@@ -876,31 +931,31 @@ export function GeneratorPage() {
               icon={<Proportions size={13} />}
               value={form.aspect}
               options={ASPECTS.map((a) => ({ value: a, label: a }))}
-              onChange={(v) => setForm((f) => ({ ...f, aspect: v as Aspect }))}
+              onChange={(v) => setForm({ aspect: v as Aspect })}
             />
             <Select
               icon={<Timer size={13} />}
               value={String(form.duration)}
               options={DURATIONS}
-              onChange={(v) => setForm((f) => ({ ...f, duration: Number(v) }))}
+              onChange={(v) => setForm({ duration: Number(v) })}
             />
-            <Tip text="输出分辨率档位；括号内是约等于的短边像素（p），会随画幅变化。">
-              <Select
-                icon={<Gauge size={13} />}
-                value={form.resolution}
-                options={RESOLUTIONS.map((r) => ({
-                  value: r,
-                  label: `${r}MP · ${friendlyP(r, form.aspect)}p`,
-                }))}
-                onChange={(v) => setForm((f) => ({ ...f, resolution: v }))}
-              />
-            </Tip>
-            <MorePopover
-              form={form}
-              onChange={(patch) => setForm((f) => ({ ...f, ...patch }))}
+            <Select
+              icon={<Gauge size={13} />}
+              value={form.resolution}
+              options={RESOLUTIONS.map((r) => ({
+                value: r,
+                label: `${friendlyP(r, form.aspect)}P`,
+              }))}
+              onChange={(v) => setForm({ resolution: v })}
             />
+            <MorePopover form={form} onChange={setForm} />
 
             <div className="ml-auto flex items-center gap-2">
+              {queue.length > 0 && (
+                <span className="inline-flex items-center gap-1 rounded-full border border-acc/30 bg-acc/10 px-2.5 py-1 text-xs font-medium text-acc2">
+                  队列 {queue.length}
+                </span>
+              )}
               <button
                 type="button"
                 onClick={onGenerate}
@@ -942,29 +997,80 @@ export function GeneratorPage() {
         />
       </div>
 
-      {/* 结果 */}
-      {displayJob && (
-        <section className="flex flex-col gap-3">
-          <div className="flex items-center gap-3">
-            <span className="section-title">{job ? '结果' : '上一张成片'}</span>
+      {/* 运行状态：运行中/失败时出现，成功自动收起（成片去「记录」看） */}
+      {job && (running || job.state === 'error') && (
+        <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-line/70 bg-canvas/55 px-4 py-3 shadow-soft backdrop-blur-xl">
+          <Badge tone={job.state === 'error' ? 'err' : 'acc'}>
+            {job.state === 'queued'
+              ? '排队中'
+              : job.state === 'error'
+                ? '失败'
+                : '生成中'}
+          </Badge>
+          {running && (
+            <ProgressBar
+              className="mt-0 min-w-[140px] flex-1"
+              indeterminate={!job.progress?.total}
+              value={percent(
+                job.progress?.bytes ?? 0,
+                job.progress?.total ?? 0,
+              )}
+            />
+          )}
+          <span
+            className={cn(
+              'min-w-0 flex-1 truncate text-xs',
+              job.state === 'error' ? 'text-err' : 'text-dim',
+            )}
+            title={job.error || job.message}
+          >
+            {running
+              ? `${connected ? '实时推送' : '轮询'} · ${job.message}`
+              : job.error || job.message}
+          </span>
+          {running && (
             <button
               type="button"
-              onClick={() => setView('history')}
-              className="ml-auto text-xs text-dim underline underline-offset-2 transition hover:text-ink"
+              onClick={onCancel}
+              disabled={cancelJob.isPending}
+              className="btn px-3 py-1 text-xs"
             >
-              在历史中查看
+              <X size={13} /> 取消
             </button>
-          </div>
-          <div className="rounded-3xl border border-line/70 bg-canvas/55 p-5 shadow-card backdrop-blur-xl">
-            <JobProgress
-              job={displayJob}
-              connected={displayJob === job ? connected : false}
-              onCancel={displayJob === job && running ? onCancel : undefined}
-              cancelling={cancelJob.isPending}
-            />
-          </div>
-        </section>
+          )}
+        </div>
       )}
+
+      {/* 待生成队列：当前任务结束后按顺序自动发起 */}
+      {queue.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-line/70 bg-canvas/55 px-4 py-2.5 text-xs text-dim shadow-soft backdrop-blur-xl">
+          <span className="inline-flex items-center gap-1.5 font-medium text-ink">
+            <ListOrdered size={14} /> 待生成队列
+          </span>
+          {queue.map((q, i) => (
+            <span
+              key={q.key}
+              className="inline-flex max-w-[240px] items-center gap-1.5 rounded-full border border-line bg-soft px-2.5 py-1"
+            >
+              <span className="text-dim/70">{i + 1}.</span>
+              <span className="truncate text-ink">
+                {q.body.title || 'clip'}
+              </span>
+              <button
+                type="button"
+                onClick={() => removeQueued(q.key)}
+                title="移出队列"
+                className="shrink-0 transition hover:text-err"
+              >
+                <X size={12} />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* 案例展示 */}
+      <CaseShowcase />
 
       {preview && previewStyle && (
         <div className="pointer-events-none fixed z-[80]" style={previewStyle}>

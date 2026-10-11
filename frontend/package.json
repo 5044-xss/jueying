@@ -1,10 +1,10 @@
 {
-  "name": "jue-man-desktop",
-  "productName": "jue-man",
+  "name": "jueying-desktop",
+  "productName": "掘影",
   "private": true,
   "version": "0.1.0",
-  "description": "jue-man 视频生成工作台（Electron + React）",
-  "author": "jue-man",
+  "description": "掘影 视频生成工作台（Electron + React）",
+  "author": "掘影",
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
@@ -12,10 +12,14 @@
     "electron": "wait-on tcp:5173 && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron electron/main.cjs",
     "dev:electron": "concurrently -k -n vite,electron -c cyan,magenta \"npm:dev\" \"npm:electron\"",
     "build": "tsc -b && vite build",
+    "build:backend": "node scripts/build-backend.mjs",
+    "package": "npm run build:backend && npm run build && electron-builder",
+    "package:dir": "npm run build:backend && npm run build && electron-builder --dir",
+    "release": "node scripts/release.mjs",
     "preview": "vite preview",
     "lint": "oxlint",
-    "pack": "npm run build && electron-builder --dir",
-    "dist": "npm run build && electron-builder"
+    "gen-keypair": "node scripts/gen-keypair.mjs",
+    "sign-license": "node scripts/sign-license.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.9.1",
@@ -48,8 +52,9 @@
     "wait-on": "^9.5.1"
   },
   "build": {
-    "appId": "com.jueman.app",
-    "productName": "jue-man",
+    "appId": "com.jueying.app",
+    "productName": "掘影",
+    "icon": "public/app-icon.png",
     "directories": {
       "output": "release"
     },
@@ -58,7 +63,8 @@
       { "from": "resources/backend", "to": "backend" }
     ],
     "win": {
-      "target": ["nsis", "portable"]
+      "target": ["nsis", "portable"],
+      "icon": "public/app-icon.png"
     },
     "nsis": {
       "oneClick": false,

@@ -1,8 +1,9 @@
-import { Eye, EyeOff, RefreshCw, Save, Server } from 'lucide-react'
+import { CheckCircle2, Copy, Download, Eye, EyeOff, RefreshCw, Save, Server, ShieldCheck, XCircle } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { z } from 'zod'
 import { useCatalog, useSaveSettings, useSettings, useTestCloud } from '../api/queries'
 import type { Catalog, Settings, TestResult } from '../api/types'
+import type { CheckUpdateResult } from '../global'
 import { ModelSelect } from '../components/ModelSelect'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
@@ -65,6 +66,52 @@ export function SettingsPage() {
   const [testResult, setTestResult] = useState<TestResult | null>(null)
   const [showPass, setShowPass] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [machine, setMachine] = useState<{ code: string; display: string } | null>(null)
+  const [appVersion, setAppVersion] = useState('')
+  const [checking, setChecking] = useState(false)
+  const [updateResult, setUpdateResult] = useState<CheckUpdateResult | null>(null)
+  const isDesktop = typeof window !== 'undefined' && !!window.licenseAPI
+
+  useEffect(() => {
+    if (!window.licenseAPI) return
+    window.licenseAPI
+      .getMachineId()
+      .then(setMachine)
+      .catch(() => undefined)
+    window.jueman?.info?.().then((i) => setAppVersion(i.version)).catch(() => undefined)
+  }, [])
+
+  function copyMachineCode() {
+    if (!machine) return
+    navigator.clipboard.writeText(machine.display)
+    toast.success('已复制机器码')
+  }
+
+  async function reactivate() {
+    if (!window.licenseAPI) return
+    try {
+      await window.licenseAPI.resetLicense()
+    } catch {
+      /* 主界面会被关闭，忽略中断 */
+    }
+  }
+
+  async function checkUpdate() {
+    if (!window.jueman?.checkUpdate) return
+    setChecking(true)
+    setUpdateResult(null)
+    try {
+      const result = await window.jueman.checkUpdate()
+      setUpdateResult(result)
+      if (!result.ok) toast.error(`检查更新失败：${result.error ?? '未知错误'}`)
+      else if (result.hasUpdate) toast.success(`发现新版本 ${result.latest}`)
+      else toast.success(result.note ?? '已是最新版本')
+    } catch {
+      toast.error('检查更新失败')
+    } finally {
+      setChecking(false)
+    }
+  }
 
   useEffect(() => {
     if (data && !form) setForm(structuredClone(data))
@@ -380,6 +427,74 @@ export function SettingsPage() {
             />
           ))}
         </div>
+      </Card>
+
+      <Card>
+        <CardTitle
+          icon={<ShieldCheck size={15} />}
+          right={
+            <Badge tone={isDesktop ? 'ok' : 'default'}>
+              {isDesktop ? '已激活' : '浏览器预览'}
+            </Badge>
+          }
+        >
+          授权与版本
+        </CardTitle>
+        {isDesktop ? (
+          <>
+            <div className="text-xs text-dim/80">当前版本 {appVersion || '—'}</div>
+            <div className="mt-3">
+              <div className="label">本机机器码</div>
+              <div className="flex gap-2">
+                <input
+                  readOnly
+                  className="input"
+                  value={machine?.display ?? '获取中…'}
+                />
+                <Button onClick={copyMachineCode} disabled={!machine}>
+                  <Copy size={14} /> 复制
+                </Button>
+              </div>
+            </div>
+
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <Button onClick={checkUpdate} disabled={checking}>
+                <RefreshCw size={14} className={checking ? 'animate-spin' : ''} /> 检查更新
+              </Button>
+              {updateResult?.hasUpdate && updateResult.url && (
+                <Button
+                  variant="primary"
+                  onClick={() => window.jueman?.openExternal(updateResult.url!)}
+                >
+                  <Download size={14} /> 前往下载 v{updateResult.latest}
+                </Button>
+              )}
+              {updateResult?.ok && !updateResult.hasUpdate && (
+                <span className="flex items-center gap-1.5 text-xs text-ok">
+                  <CheckCircle2 size={14} /> {updateResult.note ?? '已是最新版本'}
+                </span>
+              )}
+              {updateResult && !updateResult.ok && (
+                <span className="flex items-center gap-1.5 text-xs text-err">
+                  <XCircle size={14} /> {updateResult.error}
+                </span>
+              )}
+            </div>
+
+            <p className="mt-2 text-xs text-dim/70">
+              授权为「一码一机」，更换硬件需重新激活。重新激活会退出当前界面并回到激活页。
+            </p>
+            <div className="mt-3">
+              <Button onClick={reactivate}>
+                <RefreshCw size={14} /> 重新激活
+              </Button>
+            </div>
+          </>
+        ) : (
+          <div className="text-xs text-dim/80">
+            浏览器预览模式（未打包），激活仅在桌面端生效。
+          </div>
+        )}
       </Card>
     </div>
   )

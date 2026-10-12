@@ -9,6 +9,7 @@ import os
 import shutil
 import threading
 import time
+import urllib.error
 import urllib.request
 import uuid
 import zipfile
@@ -129,14 +130,21 @@ def _friendly(msg):
     low = m.lower()
     if "403" in m or "rate limit" in low:
         return "下载被 GitHub 限流，请稍后重试（不要频繁点击）"
-    if "timed out" in low or "timeout" in low or "connection" in low or "unreachable" in low:
+    if ("_ssl.c" in low or "eof occurred in violation" in low
+            or "remote disconnected" in low or "remotedisconnected" in low
+            or ("ssl" in low and ("eof" in low or "handshake" in low))):
+        return ("与 GitHub 的加密连接被中断（TLS/SSL 握手失败）："
+                "常见于网络波动或本机代理，请检查网络/代理后重试")
+    if ("timed out" in low or "timeout" in low or "connection" in low
+            or "unreachable" in low or "10054" in low or "10060" in low
+            or "10061" in low):
         return "网络连接失败，请检查网络后重试"
     return m or "下载失败"
 
 
-def _download(url, part):
+def _download_once(url, part, opener):
     req = urllib.request.Request(url, headers={"User-Agent": "jueying"})
-    with urllib.request.urlopen(req, timeout=120) as r, open(part, "wb") as fh:
+    with opener.open(req, timeout=120) as r, open(part, "wb") as fh:
         total = int(r.headers.get("Content-Length") or 0)
         done = 0
         while True:
@@ -147,6 +155,30 @@ def _download(url, part):
             done += len(chunk)
             if total:
                 _set_install(progress=int(done * 100 / total))
+
+
+def _download(url, part):
+    """下载案例包：系统代理常把 GitHub 的 TLS 握手弄断（_ssl.c EOF occurred
+    in violation of protocol）。先按系统代理请求，失败后改用直连自愈，并各做少量重试。"""
+    from .engine.cloud_http import make_opener
+
+    openers = [make_opener()]
+    if urllib.request.getproxies():
+        openers.append(make_opener(direct=True))
+    last = None
+    for opener in openers:
+        for attempt in range(3):
+            try:
+                _download_once(url, part, opener)
+                return
+            except urllib.error.HTTPError:
+                raise  # 403/404 等 HTTP 层错误重试无意义，交上层归类
+            except Exception as exc:
+                last = exc
+                if attempt < 2:
+                    time.sleep(1.5 * (attempt + 1))
+    if last:
+        raise last
 
 
 def _install_worker():

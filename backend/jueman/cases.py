@@ -119,45 +119,54 @@ def install_status():
         return dict(_install)
 
 
-def _asset_api_url():
-    api = "https://api.github.com/repos/%s/releases/latest" % CASES_REPO
-    req = urllib.request.Request(api, headers={
-        "User-Agent": "jueying", "Accept": "application/vnd.github+json"})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        data = json.load(r)
-    for a in data.get("assets") or []:
-        if a.get("name") == CASES_ASSET:
-            return a.get("url")
-    raise RuntimeError("发布里没有 %s" % CASES_ASSET)
+def _latest_download_url():
+    """Release 固定下载地址：不走 api.github.com，因此没有未认证限流。"""
+    return "https://github.com/%s/releases/latest/download/%s" % (CASES_REPO, CASES_ASSET)
+
+
+def _friendly(msg):
+    m = str(msg or "")
+    low = m.lower()
+    if "403" in m or "rate limit" in low:
+        return "下载被 GitHub 限流，请稍后重试（不要频繁点击）"
+    if "timed out" in low or "timeout" in low or "connection" in low or "unreachable" in low:
+        return "网络连接失败，请检查网络后重试"
+    return m or "下载失败"
+
+
+def _download(url, part):
+    req = urllib.request.Request(url, headers={"User-Agent": "jueying"})
+    with urllib.request.urlopen(req, timeout=120) as r, open(part, "wb") as fh:
+        total = int(r.headers.get("Content-Length") or 0)
+        done = 0
+        while True:
+            chunk = r.read(1024 * 256)
+            if not chunk:
+                break
+            fh.write(chunk)
+            done += len(chunk)
+            if total:
+                _set_install(progress=int(done * 100 / total))
 
 
 def _install_worker():
-    try:
-        _set_install(state="downloading", progress=0, error="")
-        url = _asset_api_url()
-        part = os.path.join(cases_dir(), CASES_ASSET + ".part")
-        req = urllib.request.Request(url, headers={
-            "User-Agent": "jueying", "Accept": "application/octet-stream"})
-        with urllib.request.urlopen(req, timeout=120) as r, open(part, "wb") as fh:
-            total = int(r.headers.get("Content-Length") or 0)
-            done = 0
-            while True:
-                chunk = r.read(1024 * 256)
-                if not chunk:
-                    break
-                fh.write(chunk)
-                done += len(chunk)
-                if total:
-                    _set_install(progress=int(done * 100 / total))
-        with zipfile.ZipFile(part, "r") as z:
-            z.extractall(cases_dir())
+    part = os.path.join(cases_dir(), CASES_ASSET + ".part")
+    _set_install(state="downloading", progress=0, error="")
+    last = None
+    for url in (_latest_download_url(),):
         try:
-            os.remove(part)
-        except Exception:
-            pass
-        _set_install(state="done", progress=100, error="")
-    except Exception as exc:
-        _set_install(state="error", error=str(exc)[:300])
+            _download(url, part)
+            with zipfile.ZipFile(part, "r") as z:
+                z.extractall(cases_dir())
+            try:
+                os.remove(part)
+            except Exception:
+                pass
+            _set_install(state="done", progress=100, error="")
+            return
+        except Exception as exc:
+            last = exc
+    _set_install(state="error", error=_friendly(last)[:300])
 
 
 def start_install():

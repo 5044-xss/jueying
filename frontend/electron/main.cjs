@@ -4,7 +4,7 @@ const path = require('node:path')
 const fs = require('node:fs')
 const net = require('node:net')
 const http = require('node:http')
-const { spawn, execFile } = require('node:child_process')
+const { spawn, execFileSync } = require('node:child_process')
 
 const { getMachineCode } = require('./machine-id.cjs')
 const { verifyLicense, loadLicense, saveLicense, clearLicense } = require('./license.cjs')
@@ -199,20 +199,82 @@ function startBackend(spec, port) {
   })
 }
 
-function killBackend() {
-  if (!backendProc || backendProc.killed) return
-  const pid = backendProc.pid
-  log(`kill backend pid=${pid}`)
+// 通过监听端口找出后端进程 PID：即便后端不是本进程 spawn 的（复用/遗留孤儿），
+// 也能定位并结束它，避免关闭软件后 jueman-backend.exe 仍在后台占用端口。
+function pidsOnPort(port) {
+  if (process.platform !== 'win32') return []
   try {
-    if (process.platform === 'win32') {
-      execFile('taskkill', ['/pid', String(pid), '/T', '/F'], () => {})
-    } else {
-      backendProc.kill('SIGTERM')
+    const out = execFileSync('netstat', ['-ano', '-p', 'tcp'], {
+      encoding: 'utf8',
+      timeout: 4000,
+      windowsHide: true,
+    })
+    const pids = new Set()
+    for (const line of out.split(/\r?\n/)) {
+      if (!/LISTENING/i.test(line)) continue
+      if (!new RegExp(`[:.]${port}\\b`).test(line)) continue
+      const pid = line.trim().split(/\s+/).pop()
+      if (/^\d+$/.test(pid)) pids.add(Number(pid))
     }
-  } catch (e) {
-    log(`kill failed: ${e.message}`)
+    return [...pids]
+  } catch {
+    return []
+  }
+}
+
+// 按镜像名兜底：清理所有 jueman-backend.exe（含历次遗留的孤儿进程）。
+function pidsByImage(name) {
+  if (process.platform !== 'win32') return []
+  try {
+    const out = execFileSync('tasklist', ['/FI', `IMAGENAME eq ${name}`, '/FO', 'CSV', '/NH'], {
+      encoding: 'utf8',
+      timeout: 4000,
+      windowsHide: true,
+    })
+    const pids = []
+    for (const line of out.split(/\r?\n/)) {
+      const m = line.match(/^"[^"]+","(\d+)"/)
+      if (m) pids.push(Number(m[1]))
+    }
+    return pids
+  } catch {
+    return []
+  }
+}
+
+function taskkill(pid) {
+  try {
+    execFileSync('taskkill', ['/pid', String(pid), '/T', '/F'], {
+      timeout: 5000,
+      windowsHide: true,
+      stdio: 'ignore',
+    })
+  } catch {
+    /* 已退出或无权限：忽略 */
+  }
+}
+
+// 关闭软件时清掉后端：既杀本进程 spawn 的，也杀复用/遗留的（按端口 + 镜像名）。
+function killBackend() {
+  const pids = new Set()
+  if (backendProc && !backendProc.killed && backendProc.pid) pids.add(backendProc.pid)
+  if (process.platform === 'win32') {
+    for (const p of pidsOnPort(backendPort)) pids.add(p)
+    for (const p of pidsByImage('jueman-backend.exe')) pids.add(p)
   }
   backendProc = null
+  if (!pids.size) return
+  log(`kill backend pids=${[...pids].join(',')}`)
+  for (const pid of pids) {
+    if (process.platform === 'win32') taskkill(pid)
+    else {
+      try {
+        process.kill(pid, 'SIGTERM')
+      } catch {
+        /* ignore */
+      }
+    }
+  }
 }
 
 function createWindow(port) {
@@ -373,6 +435,8 @@ function ensureUpdater() {
     // 留一点时间让界面提示，然后自动退出并安装新版本
     setTimeout(() => {
       try {
+        // 安装前先结束后端，避免 jueman-backend.exe 被占用导致新版本的后端 exe 无法替换。
+        killBackend()
         autoUpdater.quitAndInstall(false, true)
       } catch (e) {
         log(`quitAndInstall failed: ${e.message}`)

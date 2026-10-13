@@ -2,6 +2,7 @@ import {
   ChevronDown,
   Clock,
   Folder,
+  Info,
   Pencil,
   Play,
   RefreshCw,
@@ -10,10 +11,12 @@ import {
   X,
 } from 'lucide-react'
 import { useMemo, useState } from 'react'
+import type { ReactNode } from 'react'
 import {
   useCancelJob,
   useCreateJob,
   useDeleteJob,
+  useDeleteProject,
   useJobs,
   useUpdateJob,
 } from '../api/queries'
@@ -50,22 +53,134 @@ const NEW_GROUP = '__new__'
 const ALL = '__all__'
 const NONE = '__none__'
 
+const MODEL_VARIANT_TEXT: Record<string, string> = {
+  auto: '自动',
+  fl2va: 'FL2VA（纯图）',
+  ref2va: 'Ref2VA（图+音/视频）',
+}
+const SAMPLER_MODE_TEXT: Record<string, string> = {
+  new: '新链路（SaveVideo）',
+  legacy: '旧链路（VHS）',
+}
+
+function DetailRow({ label, value }: { label: string; value?: ReactNode }) {
+  if (value === undefined || value === null || value === '' || value === false) {
+    return null
+  }
+  return (
+    <div className="flex items-start gap-3 border-b border-line/60 py-1.5 last:border-0">
+      <span className="w-24 shrink-0 text-xs text-dim/80">{label}</span>
+      <span className="min-w-0 flex-1 break-all text-xs text-ink">{value}</span>
+    </div>
+  )
+}
+
+function jobDetail(job: Job) {
+  const p = job.params || {}
+  const seedFixed = typeof p.seed === 'number'
+  return (
+    <div className="max-h-[60vh] overflow-y-auto pr-1">
+      <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-dim">
+        <Badge tone={stateTone[job.state]}>{stateText[job.state]}</Badge>
+        <span>{formatTime(job.createdAt)}</span>
+        <span className="text-dim/60">ID {job.id.slice(0, 8)}</span>
+      </div>
+
+      <DetailRow label="时长" value={p.duration ? `${p.duration} 秒` : ''} />
+      <DetailRow
+        label="帧数"
+        value={p.length ? `${p.length} 帧（${p.duration ?? ''}s @24fps）` : ''}
+      />
+      <DetailRow
+        label="分辨率"
+        value={p.width && p.height ? `${p.width} × ${p.height}` : ''}
+      />
+      <DetailRow label="画幅" value={p.aspect || p.aspect_ratio} />
+      <DetailRow
+        label="清晰度"
+        value={
+          p.megapixels
+            ? `${p.megapixels} MP`
+            : p.resolution
+              ? `${p.resolution} MP`
+              : ''
+        }
+      />
+      <DetailRow
+        label="采样步数"
+        value={
+          p.video_steps
+            ? `${p.video_steps}（视频）/ ${p.audio_steps ?? p.video_steps}（音频）`
+            : ''
+        }
+      />
+      <DetailRow
+        label="采样链路"
+        value={p.sampler_mode ? SAMPLER_MODE_TEXT[p.sampler_mode] ?? p.sampler_mode : '自动'}
+      />
+      <DetailRow
+        label="模型路径"
+        value={
+          p.model_variant
+            ? MODEL_VARIANT_TEXT[p.model_variant] ?? p.model_variant
+            : '自动'
+        }
+      />
+      <DetailRow
+        label="种子"
+        value={seedFixed ? (p.seed === 0 ? '随机' : String(p.seed)) : ''}
+      />
+      <DetailRow
+        label="Sage"
+        value={p.sage ? (p.sage === '关闭' ? '关闭' : `开启（${p.sage}）`) : ''}
+      />
+      <DetailRow
+        label="Block Swap"
+        value={p.blocks_to_swap !== undefined ? String(p.blocks_to_swap) : ''}
+      />
+      <DetailRow
+        label="二采精修"
+        value={
+          p.second_pass
+            ? `开启（×${p.second_scale ?? 1.5}，强度 ${p.second_denoise ?? 0.3}）`
+            : '关闭'
+        }
+      />
+      <DetailRow label="Unet 模型" value={p.unet} />
+      <DetailRow label="LoRA" value={p.lora} />
+      <DetailRow label="文本编码器" value={p.clip} />
+      <DetailRow label="视频 VAE" value={p.vae_video} />
+      <DetailRow label="音频 VAE" value={p.vae_audio} />
+
+      <div className="mt-3">
+        <div className="mb-1.5 text-xs text-dim/80">提示词</div>
+        <div className="whitespace-pre-wrap rounded-2xl border border-line bg-soft/60 px-3 py-2 text-xs leading-relaxed text-ink">
+          {job.prompt || '（无）'}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function HistoryPage() {
   const { data: jobs, isLoading, isError, error, refetch, isFetching } = useJobs(5000)
   const cancelJob = useCancelJob()
   const createJob = useCreateJob()
   const updateJob = useUpdateJob()
   const deleteJob = useDeleteJob()
+  const deleteProject = useDeleteProject()
 
   const [expanded, setExpanded] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<Job | null>(null)
+  const [detailTarget, setDetailTarget] = useState<Job | null>(null)
   const [groupTarget, setGroupTarget] = useState<Job | null>(null)
   const [groupName, setGroupName] = useState('')
   const [renameFrom, setRenameFrom] = useState<string | null>(null)
   const [renameTo, setRenameTo] = useState('')
+  const [deleteGroupTarget, setDeleteGroupTarget] = useState<string | null>(null)
   const [projectFilter, setProjectFilter] = useState<string>(ALL)
 
   const imageOrder = useUI((s) => s.imageOrder)
@@ -223,6 +338,16 @@ export function HistoryPage() {
     }
   }
 
+  async function doDeleteGroup(project: string) {
+    try {
+      const r = await deleteProject.mutateAsync(project)
+      toast.success(`已删除分组「${project}」（${r.count} 条）`)
+      if (projectFilter === project) setProjectFilter(ALL)
+    } catch (e) {
+      toast.error(`删除分组失败：${(e as Error).message}`)
+    }
+  }
+
   if (isLoading) {
     return (
       <div className="flex items-center gap-2 text-dim">
@@ -270,17 +395,27 @@ export function HistoryPage() {
                 {f.label}
               </button>
               {f.value !== NONE && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setRenameTo(f.value)
-                    setRenameFrom(f.value)
-                  }}
-                  title="重命名分组"
-                  className="grid h-6 w-6 place-items-center rounded-full text-dim/60 transition hover:bg-soft hover:text-ink"
-                >
-                  <Pencil size={12} />
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRenameTo(f.value)
+                      setRenameFrom(f.value)
+                    }}
+                    title="重命名分组"
+                    className="grid h-6 w-6 place-items-center rounded-full text-dim/60 transition hover:bg-soft hover:text-ink"
+                  >
+                    <Pencil size={12} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDeleteGroupTarget(f.value)}
+                    title="删除分组（连同组内全部任务与成片）"
+                    className="grid h-6 w-6 place-items-center rounded-full text-dim/60 transition hover:bg-err/10 hover:text-err"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </>
               )}
             </span>
           ))}
@@ -387,6 +522,14 @@ export function HistoryPage() {
                       >
                         <Play size={13} /> 重新编辑
                       </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setDetailTarget(job)}
+                        title="查看本次生成的参数"
+                      >
+                        <Info size={13} /> 详情
+                      </Button>
                       {job.state === 'success' && job.videoUrl && (
                         <Button
                           size="sm"
@@ -445,6 +588,18 @@ export function HistoryPage() {
         onCancel={() => setDeleteTarget(null)}
       />
 
+      <ConfirmDialog
+        open={!!deleteGroupTarget}
+        title="删除分组"
+        message={`确定删除分组「${deleteGroupTarget ?? ''}」吗？该分组下的所有任务与成片都会被一并删除，且无法恢复。`}
+        confirmText="删除分组"
+        danger
+        onConfirm={() => {
+          if (deleteGroupTarget) void doDeleteGroup(deleteGroupTarget)
+        }}
+        onCancel={() => setDeleteGroupTarget(null)}
+      />
+
       <Modal
         open={!!groupTarget}
         onClose={() => setGroupTarget(null)}
@@ -499,6 +654,15 @@ export function HistoryPage() {
           placeholder="新的分组名称"
           className="input"
         />
+      </Modal>
+
+      <Modal
+        open={!!detailTarget}
+        onClose={() => setDetailTarget(null)}
+        title={`「${detailTarget?.name ?? ''}」生成详情`}
+        width={560}
+      >
+        {detailTarget && jobDetail(detailTarget)}
       </Modal>
     </div>
   )

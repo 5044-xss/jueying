@@ -39,7 +39,8 @@ import { toast } from '../store/toast'
 import { useUI } from '../store/ui'
 
 const ASPECTS: Aspect[] = ['16:9', '9:16', '1:1', '4:3', '3:4']
-const RESOLUTIONS = ['0.4', '0.5', '1', '1.5', '2']
+// H3 原生上限 768p（≈0.98MP）；只给有效档位，超过是“虚胖”。
+const RESOLUTIONS = ['0.4', '0.5', '0.7', '0.98']
 const DURATIONS = Array.from({ length: 12 }, (_, i) => {
   const n = i + 4
   return { value: String(n), label: `${n}s` }
@@ -60,20 +61,26 @@ const RATIOS: Record<Aspect, number> = {
 const NATIVE_DIMS: Record<string, [number, number]> = {
   '16:9|0.4': [864, 480],
   '16:9|0.5': [960, 544],
+  '16:9|0.7': [1088, 608],
+  '16:9|0.98': [1312, 736],
   '16:9|1': [1344, 768],
   '16:9|1.5': [1600, 896],
   '16:9|2': [1920, 1088],
   '9:16|0.4': [480, 864],
   '9:16|0.5': [544, 960],
+  '9:16|0.7': [608, 1088],
+  '9:16|0.98': [736, 1312],
   '9:16|1': [768, 1344],
   '9:16|1.5': [896, 1600],
   '9:16|2': [1088, 1920],
 }
 
+const MAX_MP = 0.98
+
 function resDims(res: string, aspect: Aspect): [number, number] {
   const native = NATIVE_DIMS[`${aspect}|${res}`]
   if (native) return native
-  const mp = parseFloat(res) || 0.5
+  const mp = Math.min(parseFloat(res) || 0.5, MAX_MP)
   const ratio = RATIOS[aspect] || 16 / 9
   const area = mp * 1_000_000
   const w = Math.max(
@@ -96,6 +103,22 @@ function friendlyP(res: string, aspect: Aspect): number {
 
 type Mode = 'reference' | 'frames'
 
+// 提示词输入框：两层共用同一套内联文本度量，保证逐像素对齐。
+// textarea 正常显示文字（光标/选中/复制可靠）；镜像层文字透明、只画 @图片N 底色。
+const PROMPT_TEXT_STYLE: React.CSSProperties = {
+  fontFamily: 'inherit',
+  fontSize: '1rem',
+  lineHeight: 1.625,
+  letterSpacing: 'normal',
+  whiteSpace: 'pre-wrap',
+  overflowWrap: 'break-word',
+  wordBreak: 'normal',
+  padding: '4px',
+  margin: 0,
+  border: 0,
+  boxSizing: 'border-box',
+}
+
 type HoverHandlers = {
   onMouseEnter: (e: React.MouseEvent) => void
   onMouseMove: (e: React.MouseEvent) => void
@@ -110,7 +133,7 @@ function renderHighlight(text: string) {
   while ((m = re.exec(text)) !== null) {
     if (m.index > last) parts.push(text.slice(last, m.index))
     parts.push(
-      <span key={m.index} className="text-acc">
+      <span key={m.index} className="rounded-[3px] bg-acc/20">
         {m[1]}
       </span>,
     )
@@ -481,6 +504,14 @@ export function GeneratorPage() {
     el.style.overflowY = el.scrollHeight > max ? 'auto' : 'hidden'
   }, [prompt])
 
+  // 720P（0.98MP）及以上时 13–15s 长片会崩：自动夹取到 12s。
+  useEffect(() => {
+    if (friendlyP(form.resolution, form.aspect) >= 720 && form.duration >= 13) {
+      setForm({ duration: 12 })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.resolution, form.aspect, form.duration])
+
   function insertMention(n: number, start: number, end: number) {
     const txt = `@图片${n} `
     const v = prompt.slice(0, start) + txt + prompt.slice(end)
@@ -599,12 +630,8 @@ export function GeneratorPage() {
       form,
     }
 
-    // 有任务在生成/排队中：本次提交先挂起，等当前任务彻底结束后自动发起
-    const busy =
-      job?.state === 'running' ||
-      job?.state === 'queued' ||
-      submitting ||
-      processingRef.current
+    // 仅防止「提交动作」本身并发；云端 ComfyUI 会自动排队，可连续提交多个任务。
+    const busy = submitting || processingRef.current
     if (busy) {
       enqueue({
         key: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -612,7 +639,7 @@ export function GeneratorPage() {
         meta,
       })
       clearInput()
-      toast.info(`当前有任务在生成，已加入队列（${useUI.getState().queue.length}）`)
+      toast.info(`正在提交上一条，已加入队列（${useUI.getState().queue.length}）`)
       return
     }
 
@@ -628,11 +655,10 @@ export function GeneratorPage() {
     }
   }
 
-  // 当前任务结束后，自动发起队列中的下一个
+  // 队列里还有未提交的：立即依次提交（不等上一个完成，交给云端排队）
   useEffect(() => {
     if (processingRef.current) return
-    const st = job?.state
-    if (!st || st === 'running' || st === 'queued') return
+    if (queue.length === 0) return
     const next = useUI.getState().queue[0]
     if (!next) return
     processingRef.current = true
@@ -640,9 +666,7 @@ export function GeneratorPage() {
     const timer = window.setTimeout(() => {
       useUI.getState().shiftQueue()
       submitJob(next.body, next.meta)
-        .then(() =>
-          toast.success(`队列任务已开始：${next.body.title || 'clip'}`),
-        )
+        .then(() => toast.success(`队列任务已提交：${next.body.title || 'clip'}`))
         .catch((e) => toast.error(`队列任务提交失败：${(e as Error).message}`))
         .finally(() => {
           setSubmitting(false)
@@ -651,7 +675,7 @@ export function GeneratorPage() {
     }, 0)
     return () => window.clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [job?.id, job?.state])
+  }, [queue.length, submitting])
 
   async function onCancel() {
     if (!currentJobId) return
@@ -665,6 +689,8 @@ export function GeneratorPage() {
 
   const running = job?.state === 'running' || job?.state === 'queued'
   const mentionOpen = !!mention && mentionMatches.length > 0
+  // 720P 及以上：13–15s 会崩，禁用这些时长。
+  const highRes = friendlyP(form.resolution, form.aspect) >= 720
 
   let previewStyle: { left: number; top: number } | null = null
   if (preview) {
@@ -820,7 +846,8 @@ export function GeneratorPage() {
             <div
               ref={backdropRef}
               aria-hidden
-              className="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words px-1 py-1 text-base leading-relaxed text-ink"
+              style={PROMPT_TEXT_STYLE}
+              className="pointer-events-none absolute inset-0 overflow-hidden text-transparent"
             >
               {renderHighlight(prompt)}
             </div>
@@ -871,7 +898,8 @@ export function GeneratorPage() {
                 }
               }}
               placeholder="上传参考素材、输入文字，自由组合图、文元素。输入 @ 引用参考图，例如：@图片1 抬手把书递给她…"
-              className="no-scrollbar relative w-full resize-none border-0 bg-transparent px-1 py-1 text-base leading-relaxed text-transparent caret-ink outline-none placeholder:text-dim/60"
+              style={PROMPT_TEXT_STYLE}
+              className="no-scrollbar relative block w-full resize-none bg-transparent text-ink caret-ink outline-none placeholder:text-dim/60"
             />
 
             {mentionOpen && (
@@ -920,6 +948,12 @@ export function GeneratorPage() {
             )}
           </div>
 
+          {settings?.gen.second_pass && highRes && (
+            <div className="rounded-2xl border border-warn/30 bg-warn/10 px-3.5 py-2 text-xs text-warn">
+              已开启「二采精修」且清晰度 ≥720P：24G 显存会不足（OOM）。建议把清晰度降到 0.5MP，或在设置里关闭二采。
+            </div>
+          )}
+
           <div className="flex flex-wrap items-center gap-2 border-t border-line/70 pt-3">
             <Select
               icon={<Layers size={13} />}
@@ -936,7 +970,10 @@ export function GeneratorPage() {
             <Select
               icon={<Timer size={13} />}
               value={String(form.duration)}
-              options={DURATIONS}
+              options={DURATIONS.map((d) => ({
+                ...d,
+                disabled: highRes && Number(d.value) >= 13,
+              }))}
               onChange={(v) => setForm({ duration: Number(v) })}
             />
             <Select

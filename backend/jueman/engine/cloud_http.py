@@ -141,11 +141,18 @@ def _pooled_urlopen(req, timeout=120, cfg=None):
 
     if resp.status >= 400:
         code, msg, hdrs2 = resp.status, resp.reason, resp.headers
+        # 关键：把响应体读出来放进 HTTPError.fp，否则上层读不到 ComfyUI 的
+        # node_errors（400 校验详情），自动修复/友好提示全部失效。
+        body = b""
+        try:
+            body = resp.read()
+        except Exception:
+            body = b""
         try:
             resp.release_conn()
         except Exception:
             pass
-        raise urllib.error.HTTPError(url, code, msg, hdrs2, None)
+        raise urllib.error.HTTPError(url, code, msg, hdrs2, io.BytesIO(body))
     return resp
 
 
@@ -304,7 +311,85 @@ def _pick_model_file_fallback(input_name, cur, valid):
                 if kw in v.lower():
                     return v
         return None
+    if input_name == "model_name":
+        # 二采 3D latent 放大模型（新镜像改名为 ..._conv_v1_bf16）。
+        for kw in ("conv_v1", "latent_upscaler_3d", "latent_upscaler"):
+            for v in valid:
+                if kw in v.lower():
+                    return v
+        return None
     return None
+
+
+_MISSING = object()
+
+
+def _spec_default(spec):
+    """从 /object_info 的字段规格里取默认值；取不到返回 _MISSING。
+
+    spec 形如 [type, {opts...}]，type 可为字符串或候选列表（combo）。
+    """
+    if not isinstance(spec, list) or not spec:
+        return _MISSING
+    typ = spec[0]
+    opts = spec[1] if len(spec) > 1 and isinstance(spec[1], dict) else {}
+    if "default" in opts:
+        return opts["default"]
+    if isinstance(typ, list) and typ:
+        return typ[0]
+    return _MISSING
+
+
+def _conform_workflow_to_schema(workflow, object_info):
+    """A1：按集群 /object_info 规整节点控件参数（跨版本自愈）。
+
+    - 删除 schema 里不存在的“普通值”输入（保留节点连线）；
+    - 补齐缺失的必填控件（用 schema 默认值 / combo 首项）。
+
+    Returns (workflow_or_None, notes)。无可改则 (None, [])。
+    """
+    import copy
+    if not isinstance(object_info, dict) or not object_info:
+        return None, []
+    wf = copy.deepcopy(workflow)
+    notes = []
+    changed = False
+    for nid, node in wf.items():
+        if not isinstance(node, dict):
+            continue
+        ct = node.get("class_type") or ""
+        info = object_info.get(ct)
+        if not isinstance(info, dict):
+            continue
+        spec = info.get("input") or {}
+        req = spec.get("required") or {}
+        opt = spec.get("optional") or {}
+        known = set(req) | set(opt)
+        if not known:
+            continue
+        inputs = node.get("inputs")
+        if not isinstance(inputs, dict):
+            continue
+        for k in list(inputs.keys()):
+            if k in known:
+                continue
+            if isinstance(inputs[k], list):
+                continue  # 连线：一律保留（类型名可能是通配符）
+            if "." in k:
+                continue  # 动态控件输入（如 mode.scale）：schema 不单列，务必保留
+            del inputs[k]
+            notes.append("删除 %s.%s" % (nid, k))
+            changed = True
+        for k, s in req.items():
+            if k in inputs:
+                continue
+            dv = _spec_default(s)
+            if dv is _MISSING:
+                continue
+            inputs[k] = dv
+            notes.append("补 %s.%s=%r" % (nid, k, dv))
+            changed = True
+    return (wf if changed else None), notes
 
 
 def _heal_workflow_file_inputs(workflow, raw_body):
@@ -984,6 +1069,9 @@ class CloudHTTP:
         self.token = cfg.get("token", "")
         # 上传去重缓存：key=(集群,路径,大小,mtime_ns) -> 云端 {name,subfolder,type}
         self._upload_cache = {}
+        # 2026-10-13：/object_info 缓存 + 每个 client 只做一次 schema 规整（A1）。
+        self._object_info = None
+        self._conform_done = False
 
     def _upkey(self, local_path):
         try:
@@ -1125,7 +1213,34 @@ class CloudHTTP:
                 _prune_upload_cache()
         return result
 
+    def _conform(self, workflow):
+        """A1：提交前按 /object_info 规整一次节点参数（每 client 只做一次）。"""
+        if self._conform_done:
+            return workflow
+        self._conform_done = True
+        if not self.cfg.get("step_probe", True):
+            return workflow
+        try:
+            oi = self._object_info
+            if oi is None:
+                oi = self.object_info(timeout=30)
+                self._object_info = oi if isinstance(oi, dict) else {}
+        except Exception:
+            self._object_info = {}
+            return workflow
+        if not self._object_info:
+            return workflow
+        try:
+            healed, notes = _conform_workflow_to_schema(workflow, self._object_info)
+        except Exception:
+            return workflow
+        if healed is not None:
+            _LOGGER.warning("云端参数已按 /object_info 规整：%s", "；".join(notes[:20]))
+            return healed
+        return workflow
+
     def submit(self, workflow, _heal_depth=0):
+        workflow = self._conform(workflow)
         try:
             with self._open("POST", "/prompt",
                             data=json.dumps({"prompt": workflow}).encode(),

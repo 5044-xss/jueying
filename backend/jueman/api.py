@@ -335,6 +335,16 @@ def duplicate_project(body: dict):
 _CASE_VIDEO_EXTS = (".mp4", ".webm", ".mov", ".mkv")
 
 
+@app.post("/api/projects/delete")
+def delete_project(body: dict):
+    """删除分组及其下全部任务与成片（前端需二次确认）。"""
+    body = body or {}
+    try:
+        return jobs_svc.delete_project(body.get("project") or body.get("name"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)[:300])
+
+
 @app.get("/api/cases")
 def list_cases():
     return cases_svc.list_cases()

@@ -11,7 +11,7 @@ export function Select<T extends string>({
 }: {
   icon?: ReactNode
   value: T
-  options: { value: T; label: string }[]
+  options: { value: T; label: string; disabled?: boolean }[]
   onChange: (v: T) => void
   className?: string
 }) {
@@ -50,24 +50,30 @@ export function Select<T extends string>({
       </button>
 
       {open && (
-        <div className="absolute left-0 top-full z-30 mt-1.5 min-w-[7rem] rounded-2xl border border-line bg-canvas p-1.5 shadow-lift">
+        <div className="absolute left-0 top-full z-30 mt-1.5 max-h-60 min-w-[7rem] overflow-y-auto rounded-2xl border border-line bg-canvas p-1.5 shadow-lift">
           {options.map((o) => (
             <button
               key={o.value}
               type="button"
+              disabled={o.disabled}
               onClick={() => {
+                if (o.disabled) return
                 onChange(o.value)
                 setOpen(false)
               }}
               className={cn(
                 'flex w-full items-center gap-2 whitespace-nowrap rounded-xl px-3 py-1.5 text-left text-xs transition',
-                o.value === value
-                  ? 'bg-soft font-semibold text-ink'
-                  : 'text-dim hover:bg-soft hover:text-ink',
+                o.disabled
+                  ? 'cursor-not-allowed text-dim/40'
+                  : o.value === value
+                    ? 'bg-soft font-semibold text-ink'
+                    : 'text-dim hover:bg-soft hover:text-ink',
               )}
             >
               <span className="flex-1">{o.label}</span>
-              {o.value === value && <Check size={13} className="text-acc" />}
+              {o.value === value && !o.disabled && (
+                <Check size={13} className="text-acc" />
+              )}
             </button>
           ))}
         </div>

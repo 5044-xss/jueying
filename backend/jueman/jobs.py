@@ -197,21 +197,57 @@ def new_job_dict(cloud_cfg):
 
 
 def _resolution_node(cloud):
-    """探测实例是否装了 XB_HailuoH3VideoParams（仙宫云分辨率节点），按集群缓存。"""
+    """探测实例是否装了 XB_HailuoH3VideoParams（分辨率节点），按集群缓存。"""
     key = str(cloud.cfg.get("base_url") or "") + "|" + str(cloud.cfg.get("ssh_host") or "")
     with _RES_NODE_LOCK:
         if key in _RES_NODE_CACHE:
             return _RES_NODE_CACHE[key]
-    hit = ""
-    try:
-        info = cloud.object_info(timeout=30) or {}
-        if "XB_HailuoH3VideoParams" in {str(k) for k in info}:
-            hit = "xb"
-    except Exception:
-        hit = ""
+    hit = "xb" if _cluster_caps(cloud).get("has_xb_resolution") else ""
     with _RES_NODE_LOCK:
         _RES_NODE_CACHE[key] = hit
     return hit
+
+
+_CAPS_CACHE = {}
+_CAPS_LOCK = threading.Lock()
+
+
+def _cluster_caps(cloud):
+    """探测集群能力（/object_info 一次），据以选择采样/输出/加速链路。"""
+    key = str(cloud.cfg.get("base_url") or "") + "|" + str(cloud.cfg.get("ssh_host") or "")
+    with _CAPS_LOCK:
+        if key in _CAPS_CACHE:
+            return _CAPS_CACHE[key]
+    caps = {}
+    try:
+        info = cloud.object_info(timeout=30) or {}
+        nodes = {str(k) for k in info}
+        if nodes:
+            caps = {
+                "has_multirate": "MiniMaxH3MultiRateSamplerEXPT8" in nodes,
+                "has_sage_blockswap": "XB_Sage_BlockSwap" in nodes,
+                "has_sage_patch": "MiniMaxH3MemoryEfficientSageAttentionPatch" in nodes,
+                "has_savevideo": ("SaveVideo" in nodes and "CreateVideo" in nodes),
+                "has_vhs": "VHS_VideoCombine" in nodes,
+                "has_xb_resolution": "XB_HailuoH3VideoParams" in nodes,
+                "has_upscaler3d": "MinimaxH3LatentUpscaler3D" in nodes,
+                "has_latent_upscale": True,
+            }
+            # 二采放大节点的可用模型文件（供主动选取合法名，避免 400）。
+            try:
+                req = ((info.get("MinimaxH3LatentUpscaler3D") or {})
+                       .get("input") or {}).get("required") or {}
+                mn = req.get("model_name")
+                if isinstance(mn, list) and mn and isinstance(mn[0], list):
+                    caps["upscaler_models"] = [str(x) for x in mn[0]]
+            except Exception:
+                pass
+    except Exception:
+        caps = {}
+    with _CAPS_LOCK:
+        _CAPS_CACHE[key] = caps
+    return caps
+
 
 
 def catalog(cloud):
@@ -283,6 +319,38 @@ def _finish(job, state, error="", message=""):
     _save_jobs()
 
 
+def _try_restart_engine(cloud_cfg):
+    """A4：SSH 可用时尝试重启云端引擎（新镜像 /root/restart.sh）。best-effort。"""
+    host = str(cloud_cfg.get("ssh_host") or "").strip()
+    if not host:
+        return False
+    try:
+        import paramiko
+    except Exception:
+        return False
+    try:
+        h, p, u = cloud_http._parse_ssh_fields(cloud_cfg)
+        cli = paramiko.SSHClient()
+        cli.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        cli.connect(h, port=p, username=u,
+                    password=cloud_cfg.get("ssh_pass") or "",
+                    timeout=15, banner_timeout=30, auth_timeout=15,
+                    look_for_keys=False, allow_agent=False)
+        ok = False
+        for cmd in ("bash /root/restart.sh", "bash ~/restart.sh"):
+            try:
+                _in, out, _err = cli.exec_command(cmd, timeout=30)
+                out.read()
+                ok = True
+                break
+            except Exception:
+                continue
+        cli.close()
+        return ok
+    except Exception:
+        return False
+
+
 def _poll_worker(job_id):
     with _JOBS_LOCK:
         job = JOBS.get(job_id)
@@ -292,7 +360,12 @@ def _poll_worker(job_id):
     cloud = make_cloud(cfg["cloud"])
     pid = job["prompt_id"]
     deadline = time.time() + int(cfg.get("job_timeout_sec") or 2700)
+    try:
+        err_limit = max(1, int(cfg.get("poll_error_limit") or 6))
+    except Exception:
+        err_limit = 6
     out_dir = config.run_dir(cfg.get("output_dir") or "data/output")
+    err_streak = 0
 
     while True:
         with _JOBS_LOCK:
@@ -304,10 +377,32 @@ def _poll_worker(job_id):
         try:
             h = cloud.history(pid)
         except Exception as exc:
+            h = {"error": str(exc)[:200]}
+
+        # A4：连续多次查询失败 → 判定云端引擎崩溃，中断并尝试重启。
+        if isinstance(h, dict) and h.get("error"):
+            err_streak += 1
             with _JOBS_LOCK:
-                job["message"] = "查询失败，重试中：%s" % str(exc)[:120]
+                job["message"] = "云端查询失败，重试中（%d/%d）…" % (err_streak, err_limit)
+            if err_streak >= err_limit:
+                try:
+                    cloud.interrupt()
+                except Exception:
+                    pass
+                try:
+                    cloud.queue_delete([pid])
+                except Exception:
+                    pass
+                restarted = _try_restart_engine(cloud.cfg)
+                _finish(job, "error",
+                        error="云端引擎无响应（疑似崩溃）" +
+                              ("，已尝试自动重启云端引擎，请稍后重试" if restarted
+                               else "，请到云端控制台重启实例后重试"))
+                return
+            _save_jobs()
             time.sleep(4)
             continue
+        err_streak = 0
 
         st = ""
         if isinstance(h, dict):
@@ -351,6 +446,52 @@ def _poll_worker(job_id):
                               None: "等待云端…"}.get(qs, "生成中…")
         _save_jobs()
         time.sleep(3)
+
+
+def _wf_param_snapshot(wf, gen, req, sm, rn, duration):
+    """从实际组装的工作流里提取生成参数，供历史「详情」展示。"""
+    def inp(nid):
+        node = wf.get(nid) or {}
+        return node.get("inputs") or {}
+
+    p = {
+        "duration": duration,
+        "aspect": req.get("aspect"),
+        "resolution": req.get("resolution"),
+        "resolution_node": rn,
+        "sampler_mode": sm,
+        "seed": inp("182").get("noise_seed"),
+        "video_steps": gen.get("video_steps"),
+        "audio_steps": gen.get("audio_steps"),
+        "model_variant": req.get("model_variant") or "auto",
+        "unet": inp("232").get("unet_name"),
+        "lora": inp("231").get("lora_name"),
+        "clip": inp("233").get("clip_name"),
+        "vae_video": inp("234").get("vae_name"),
+        "vae_audio": inp("235").get("vae_name"),
+    }
+    rinputs = inp("167")
+    w, h, ln = rinputs.get("width"), rinputs.get("height"), rinputs.get("length")
+    p["width"] = w if isinstance(w, int) else gen.get("width")
+    p["height"] = h if isinstance(h, int) else gen.get("height")
+    p["length"] = ln if isinstance(ln, int) else workflows.snap_length(duration * 24 + 3)
+    if rn == "xb" and "555" in wf:
+        xb = inp("555")
+        p["megapixels"] = xb.get("megapixels")
+        p["aspect_ratio"] = xb.get("aspect_ratio")
+    sage = inp("230")
+    if sage:
+        p["sage"] = sage.get("sage_preset") or "开启"
+        if sage.get("blocks_to_swap") is not None:
+            p["blocks_to_swap"] = sage.get("blocks_to_swap")
+    else:
+        p["sage"] = "无"
+    p["second_pass"] = bool(gen.get("second_pass", False))
+    if p["second_pass"]:
+        p["second_scale"] = gen.get("second_scale")
+        p["second_denoise"] = gen.get("second_denoise")
+        p["second_upscaler"] = gen.get("second_upscaler")
+    return p
 
 
 def create_job(req):
@@ -402,11 +543,10 @@ def create_job(req):
     name = _safe_name(req.get("title") or "jue-man")
 
     rn = _resolution_node(cloud)
-    if not rn and ctype != "autodl":
-        rn = "xb"
+    caps = _cluster_caps(cloud)
     sm = str(req.get("sampler_mode") or cloud_cfg.get("sampler_mode") or "")
     if not sm:
-        sm = "new" if ctype == "autodl" else "legacy"
+        sm = "new" if caps.get("has_savevideo") else "legacy"
 
     wf = workflows.make_workflow(
         prompt_text,
@@ -414,7 +554,7 @@ def create_job(req):
         {"images": images_remote, "audios": audios_remote, "videos": []},
         gen,
         duration=duration,
-        model_prefix=cloud_cfg.get("model_prefix") or workflows.DEFAULT_MODEL_PREFIX,
+        model_prefix=cloud_cfg.get("model_prefix") if cloud_cfg.get("model_prefix") is not None else workflows.DEFAULT_MODEL_PREFIX,
         lora_prefix=cloud_cfg.get("lora_prefix"),
         clip_name=cloud_cfg.get("clip_name") or None,
         sampler_mode=sm,
@@ -422,6 +562,7 @@ def create_job(req):
         size=req.get("aspect") or "",
         resolution=req.get("resolution") or "",
         model_variant=req.get("model_variant") or "auto",
+        caps=caps,
     )
 
     resp = cloud.submit(wf)
@@ -441,9 +582,7 @@ def create_job(req):
             "firstFrame": req.get("input_first") or None,
             "lastFrame": req.get("input_last") or None,
         },
-        "params": {"duration": duration, "aspect": req.get("aspect"),
-                   "resolution": req.get("resolution"), "sampler_mode": sm,
-                   "resolution_node": rn, "firstNo": first_no, "lastNo": last_no},
+        "params": _wf_param_snapshot(wf, gen, req, sm, rn, duration),
         "prompt": prompt_text,
     })
     with _JOBS_LOCK:
@@ -555,6 +694,32 @@ def duplicate_project(source, name=None):
         created.append(new_id)
     _save_jobs()
     return {"ok": True, "project": target, "count": len(created)}
+
+
+def delete_project(project):
+    """删除一个分组：连同分组下所有任务与成片文件一并删除。
+
+    运行中/排队中的任务先取消再删除。返回删除条数。
+    """
+    src = str(project or "").strip()
+    if not src:
+        raise RuntimeError("缺少分组名")
+    with _JOBS_LOCK:
+        ids = [jid for jid, j in JOBS.items() if (j.get("project") or "") == src]
+    deleted = 0
+    for jid in ids:
+        job = JOBS.get(jid)
+        if job and job.get("state") in ("running", "queued"):
+            try:
+                cancel_job(jid)
+            except Exception:
+                pass
+        try:
+            delete_job(jid)
+            deleted += 1
+        except Exception:
+            pass
+    return {"ok": True, "project": src, "count": deleted}
 
 
 def public_job(job):

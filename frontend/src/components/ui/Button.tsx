@@ -14,7 +14,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
     <button
       ref={ref}
       className={cn(
-        'btn',
+        'btn whitespace-nowrap',
         variant === 'primary' && 'btn-primary shadow-soft',
         variant === 'ghost' && 'btn-ghost',
         variant === 'danger' && 'border-err/40 text-err hover:border-err',

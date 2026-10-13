@@ -86,6 +86,11 @@ export const api = {
       '/api/projects/duplicate',
       json('POST', { source, name }),
     ),
+  deleteProject: (project: string) =>
+    request<{ ok: boolean; project: string; count: number }>(
+      '/api/projects/delete',
+      json('POST', { project }),
+    ),
 
   cases: () => request<CasesList>('/api/cases'),
   installCases: () =>

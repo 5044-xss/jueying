@@ -2,19 +2,24 @@
 """生成链路用得上的纯函数 helper（从原 cloud_utils.py 抽取，去掉无关依赖）。"""
 import math
 
+# H3 原生分辨率上限（≈768p）；超过是“虚胖”，一律夹取。
+MAX_MEGAPIXELS = 0.98
+
 
 def _with_resolution(gen, resolution, size=""):
     """按清晰度(MP)与画幅把 width/height 写进 gen 的副本。
 
-    resolution: "0.4"/"0.5"/"1"/"1.5"/"2" 或 low/mid/high；size: "16:9"/"9:16"/...
+    resolution: "0.4"/"0.5"/"0.7"/"0.98" 或 low/mid/high；size: "16:9"/"9:16"/...
     命中 native 表时用精确尺寸，否则按面积+比例算 32 对齐尺寸。
+    超过 native 上限（0.98MP）的清晰度一律夹取到 0.98。
     """
     g = dict(gen or {})
     res = (resolution or "").strip().lower()
     sz = (size or "").strip().lower()
     if not res and not sz:
         return g
-    mp_table = {"0.4": 0.4, "0.5": 0.5, "low": 0.5, "1": 1.0, "mid": 1.0,
+    mp_table = {"0.4": 0.4, "0.5": 0.5, "0.7": 0.7, "0.98": 0.98,
+                "low": 0.5, "mid": 1.0, "1": 1.0,
                 "1.5": 1.5, "2": 2.0, "high": 2.0}
     ratio_table = {"16:9": 16.0 / 9.0, "9:16": 9.0 / 16.0, "1:1": 1.0,
                    "4:3": 4.0 / 3.0, "3:4": 3.0 / 4.0}
@@ -49,11 +54,12 @@ def _with_resolution(gen, resolution, size=""):
     }
     _native_sz = sz if sz else "16:9"
     n = native.get((_native_sz, res_key))
-    if n:
+    if n and (n[0] * n[1] / 1e6) <= MAX_MEGAPIXELS + 1e-6:
         g["width"], g["height"] = n
         g["megapixels"] = round(n[0] * n[1] / 1e6, 3)
         return g
     if mp and ratio:
+        mp = min(mp, MAX_MEGAPIXELS)
         area = mp * 1_000_000
         _w = int(math.sqrt(area * ratio) / 32) * 32
         _h = int(math.sqrt(area / ratio) / 32) * 32

@@ -16,7 +16,7 @@ _REAL = {
     "clip": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
     "vvae": "minimax_h3_video_vae_fp16.safetensors",
     "avae": "minimax_h3_audio_vae_fp32.safetensors",
-    "learned": "minimax_h3_latent_upscaler_3d_bf16.safetensors",
+    "learned": "minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors",
     "wf": "minimax_h3_lightx2v_v5",
 }
 

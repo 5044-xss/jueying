@@ -15,6 +15,26 @@ export interface JobParams {
   resolution_node?: string
   firstNo?: number
   lastNo?: number
+  seed?: number
+  width?: number
+  height?: number
+  length?: number
+  megapixels?: number
+  aspect_ratio?: string
+  video_steps?: number
+  audio_steps?: number
+  model_variant?: string
+  sage?: string
+  blocks_to_swap?: number
+  second_pass?: boolean
+  second_scale?: number
+  second_denoise?: number
+  second_upscaler?: string
+  unet?: string
+  lora?: string
+  clip?: string
+  vae_video?: string
+  vae_audio?: string
 }
 
 export interface JobInputs {
@@ -123,6 +143,9 @@ export interface GenConfig {
   second_denoise: number
   second_upscaler: string
   lora_strength: number
+  sage_enabled: boolean
+  blocks_to_swap: number
+  max_megapixels: number
 }
 
 export interface Settings {

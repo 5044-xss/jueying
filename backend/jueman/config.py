@@ -37,11 +37,11 @@ DEFAULTS = {
         "api_base_url": "",
         "workflow_id": "",
         "token": "",
-        "sampler_mode": "",          # 空=按 type 自动（xgpu->legacy, autodl->new）
-        "model_prefix": "MiniMax-H3",
+        "sampler_mode": "",          # 空=按集群能力自动（有 SaveVideo -> new，否则 legacy）
+        "model_prefix": "",          # 新镜像模型在根目录；旧仙宫云传 "MiniMax-H3"
         "lora_prefix": None,          # None=与 model_prefix 相同；""=根目录
         "clip_name": "",              # 空=用 models.clip
-        "step_probe": True,           # 提交前用 /object_info 探测分辨率节点与模型名
+        "step_probe": True,           # 提交前用 /object_info 探测节点能力与模型名
     },
     # 模型文件名覆盖（键见 jueman/models.py 的 _REAL）
     "models": {},
@@ -52,7 +52,7 @@ DEFAULTS = {
         "megapixels": 0.5,
         "duration_max": 10,
         "seed_auto": True,
-        "seed": 20260812,
+        "seed": 0,
         "video_steps": 8,
         "audio_steps": 8,
         "shift_video": 12,
@@ -62,11 +62,15 @@ DEFAULTS = {
         "second_denoise": 0.3,
         "second_upscaler": "learned",
         "lora_strength": 1.0,
+        "sage_enabled": True,        # Sage 总开关（开=一直用，关=完全不用）
+        "blocks_to_swap": 50,        # A3：24G 必须 50；48G 可 0
+        "max_megapixels": 0.98,      # A2：原生上限（≈768p）
     },
     "server": {"host": "127.0.0.1", "port": 8642},
     "output_dir": "data/output",
     "asset_dir": "data/assets",
     "job_timeout_sec": 7200,
+    "poll_error_limit": 6,           # A4：连续查询失败次数达此值判定引擎崩溃
 }
 
 _lock = threading.Lock()

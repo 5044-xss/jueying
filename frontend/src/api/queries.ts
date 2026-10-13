@@ -118,6 +118,14 @@ export function useDuplicateProject() {
   })
 }
 
+export function useDeleteProject() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (project: string) => api.deleteProject(project),
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.jobs }),
+  })
+}
+
 export function useCases() {
   return useQuery({ queryKey: qk.cases, queryFn: () => api.cases() })
 }

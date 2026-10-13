@@ -19,6 +19,18 @@ const FORCE_LICENSE = process.env.FORCE_LICENSE === '1'
 // 检查更新的 GitHub 仓库（owner/repo）。
 const REPO = '5044-xss/jueying'
 
+// 应用版本：打包态用 app.getVersion()；开发态 app.getVersion() 可能回落到
+// Electron 版本（如 44.7.0），因此显式读 frontend/package.json。
+function appVersion() {
+  try {
+    if (app.isPackaged) return app.getVersion()
+    const pkg = require(path.join(__dirname, '..', 'package.json'))
+    return pkg.version || app.getVersion()
+  } catch {
+    return app.getVersion()
+  }
+}
+
 let backendProc = null
 let backendPort = 8642
 let logStream = null
@@ -333,7 +345,7 @@ ipcMain.handle('jueman:info', () => ({
   isDev,
   userData: app.getPath('userData'),
   dataHome: dataHome(),
-  version: app.getVersion(),
+  version: appVersion(),
   platform: process.platform,
 }))
 
@@ -370,7 +382,7 @@ ipcMain.handle('license:reset', () => {
 
 // —— 更新检查（读取 GitHub Releases 最新 tag）——
 ipcMain.handle('update:check', async () => {
-  const current = app.getVersion()
+  const current = appVersion()
   const canUpdate = app.isPackaged
   try {
     const res = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, {

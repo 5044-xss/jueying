@@ -1,14 +1,15 @@
-import { CheckCircle2, Copy, Download, Eye, EyeOff, RefreshCw, Save, Server, ShieldCheck, XCircle } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { CheckCircle2, ChevronDown, Copy, Download, HelpCircle, RefreshCw, Server, ShieldCheck, XCircle } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import { z } from 'zod'
 import { useCatalog, useSaveSettings, useSettings, useTestCloud } from '../api/queries'
 import type { Catalog, Settings, TestResult } from '../api/types'
 import type { CheckUpdateResult, UpdateStatus } from '../global'
-import { ModelSelect } from '../components/ModelSelect'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
 import { Card, CardTitle } from '../components/ui/Card'
 import { Spinner } from '../components/ui/Spinner'
+import { Tip } from '../components/ui/Tip'
 import { cn } from '../lib/utils'
 import { toast } from '../store/toast'
 
@@ -19,18 +20,19 @@ const cloudSchema = z
     ssh_host: z.string().optional(),
   })
   .refine((v) => (v.type === 'xgpu' ? !!v.base_url?.trim() : !!v.ssh_host?.trim()), {
-    message: '请填写连接地址（仙宫云 base_url 或 AutoDL SSH 主机）',
+    message: '请填写实例地址 base_url',
   })
 
-const MODEL_KEYS: { key: string; label: string; from: keyof Catalog['files'] }[] = [
-  { key: 'unet', label: 'UNet 模型', from: 'unet' },
-  { key: 'lora', label: 'LoRA', from: 'lora' },
-  { key: 'clip', label: 'CLIP / 文本编码器', from: 'clip' },
-  { key: 'vvae', label: '视频 VAE', from: 'vae' },
-  { key: 'avae', label: '音频 VAE', from: 'vae' },
-  { key: 'learned', label: '放大器（learned）', from: 'vae' },
-  { key: 'wf', label: '工作流版本', from: 'unet' },
-]
+function FieldLabel({ text, tip }: { text: string; tip: ReactNode }) {
+  return (
+    <div className="label flex items-center gap-1">
+      <span>{text}</span>
+      <Tip text={tip}>
+        <HelpCircle size={12} className="cursor-help text-dim/70" />
+      </Tip>
+    </div>
+  )
+}
 
 function CatalogSummary({ catalog }: { catalog: Catalog }) {
   return (
@@ -65,8 +67,8 @@ export function SettingsPage() {
 
   const [form, setForm] = useState<Settings | null>(null)
   const [testResult, setTestResult] = useState<TestResult | null>(null)
-  const [showPass, setShowPass] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [secondOpen, setSecondOpen] = useState(false)
   const [machine, setMachine] = useState<{ code: string; display: string } | null>(null)
   const [appVersion, setAppVersion] = useState('')
   const [checking, setChecking] = useState(false)
@@ -74,6 +76,7 @@ export function SettingsPage() {
   const [updating, setUpdating] = useState(false)
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null)
   const isDesktop = typeof window !== 'undefined' && !!window.licenseAPI
+  const lastSavedRef = useRef('')
 
   useEffect(() => {
     const off = window.jueman?.onUpdateStatus?.((s) => {
@@ -98,6 +101,38 @@ export function SettingsPage() {
       .catch(() => undefined)
     window.jueman?.info?.().then((i) => setAppVersion(i.version)).catch(() => undefined)
   }, [])
+
+  useEffect(() => {
+    if (data && !form) setForm(structuredClone(data))
+  }, [data, form])
+
+  // 改动即自动保存（防抖 800ms），不再需要「保存配置」按钮。
+  useEffect(() => {
+    if (!form) return
+    const payload = JSON.stringify({
+      cloud: form.cloud,
+      gen: form.gen,
+      models: form.models,
+    })
+    if (lastSavedRef.current === '') {
+      lastSavedRef.current = payload
+      return
+    }
+    if (payload === lastSavedRef.current) return
+    const t = window.setTimeout(() => {
+      saveSettings.mutate(
+        { cloud: form.cloud, gen: form.gen, models: form.models },
+        {
+          onSuccess: () => {
+            lastSavedRef.current = payload
+          },
+          onError: (e) => toast.error(`保存失败：${(e as Error).message}`),
+        },
+      )
+    }, 800)
+    return () => window.clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form])
 
   function copyMachineCode() {
     if (!machine) return
@@ -147,10 +182,6 @@ export function SettingsPage() {
       toast.error(`更新失败：${(e as Error).message}`)
     }
   }
-
-  useEffect(() => {
-    if (data && !form) setForm(structuredClone(data))
-  }, [data, form])
 
   if (isLoading || !form) {
     return (
@@ -204,153 +235,25 @@ export function SettingsPage() {
     }
   }
 
-  function onSave() {
-    const parsed = cloudSchema.safeParse(cloud)
-    if (!parsed.success) {
-      toast.error(parsed.error.issues[0]?.message || '连接参数不完整')
-      return
-    }
-    saveSettings.mutate(
-      { cloud: form!.cloud, gen: form!.gen, models: form!.models },
-      {
-        onSuccess: () => toast.success('配置已保存'),
-        onError: (e) => toast.error(`保存失败：${(e as Error).message}`),
-      },
-    )
-  }
-
   return (
     <div className="flex w-full flex-col gap-5 pb-10">
+      {/* 1. 云端连接 */}
       <Card>
         <CardTitle
           icon={<Server size={15} />}
-          right={
-            <Badge tone={cloud.type === 'autodl' ? 'acc' : 'default'}>
-              {cloud.type === 'autodl' ? 'AutoDL SSH' : '仙宫云 URL'}
-            </Badge>
-          }
+          right={<Badge tone="default">仙宫云</Badge>}
         >
           云端连接
         </CardTitle>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <div className="label">连接类型</div>
-            <select
-              className="input"
-              value={cloud.type}
-              onChange={(e) => patchCloud({ type: e.target.value })}
-            >
-              <option value="xgpu">仙宫云（URL 直连）</option>
-              <option value="autodl">AutoDL（SSH 隧道）</option>
-            </select>
-          </div>
-          <div>
-            <div className="label">采样链路</div>
-            <select
-              className="input"
-              value={cloud.sampler_mode}
-              onChange={(e) => patchCloud({ sampler_mode: e.target.value })}
-            >
-              <option value="">自动（xgpu→legacy / autodl→new）</option>
-              <option value="legacy">legacy</option>
-              <option value="new">new</option>
-            </select>
-          </div>
-        </div>
-
-        {cloud.type === 'xgpu' ? (
-          <div className="mt-3">
-            <div className="label">实例地址 base_url</div>
-            <input
-              className="input"
-              placeholder="https://<实例ID>-8188.container.x-gpu.com"
-              value={cloud.base_url}
-              onChange={(e) => patchCloud({ base_url: e.target.value })}
-            />
-          </div>
-        ) : (
-          <div className="mt-3 flex flex-col gap-3">
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <div className="label">SSH 主机</div>
-                <input
-                  className="input"
-                  value={cloud.ssh_host}
-                  onChange={(e) => patchCloud({ ssh_host: e.target.value })}
-                />
-              </div>
-              <div>
-                <div className="label">SSH 端口</div>
-                <input
-                  type="number"
-                  className="input"
-                  value={cloud.ssh_port}
-                  onChange={(e) => patchCloud({ ssh_port: Number(e.target.value) || 22 })}
-                />
-              </div>
-              <div>
-                <div className="label">SSH 用户</div>
-                <input
-                  className="input"
-                  value={cloud.ssh_user}
-                  onChange={(e) => patchCloud({ ssh_user: e.target.value })}
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <div className="label">SSH 密码</div>
-                <div className="relative">
-                  <input
-                    type={showPass ? 'text' : 'password'}
-                    className="input pr-9"
-                    value={cloud.ssh_pass}
-                    onChange={(e) => patchCloud({ ssh_pass: e.target.value })}
-                  />
-                  <button
-                    type="button"
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-dim hover:text-ink"
-                    onClick={() => setShowPass((v) => !v)}
-                    title={showPass ? '隐藏' : '显示'}
-                  >
-                    {showPass ? <EyeOff size={15} /> : <Eye size={15} />}
-                  </button>
-                </div>
-              </div>
-              <div>
-                <div className="label">ComfyUI 端口</div>
-                <input
-                  type="number"
-                  className="input"
-                  value={cloud.comfy_port}
-                  onChange={(e) => patchCloud({ comfy_port: Number(e.target.value) || 8188 })}
-                />
-              </div>
-            </div>
-          </div>
-        )}
-
-        <div className="mt-3 grid grid-cols-2 gap-3">
-          <div>
-            <div className="label">模型目录前缀</div>
-            <input
-              className="input"
-              value={cloud.model_prefix}
-              onChange={(e) => patchCloud({ model_prefix: e.target.value })}
-            />
-          </div>
-          <div>
-            <div className="label">LoRA 前缀（空=同模型前缀）</div>
-            <input
-              className="input"
-              value={cloud.lora_prefix ?? ''}
-              placeholder="（可选）"
-              onChange={(e) =>
-                patchCloud({ lora_prefix: e.target.value === '' ? null : e.target.value })
-              }
-            />
-          </div>
+        <div>
+          <div className="label">实例地址 base_url</div>
+          <input
+            className="input"
+            placeholder="https://<实例ID>-8188.container.x-gpu.com"
+            value={cloud.base_url}
+            onChange={(e) => patchCloud({ base_url: e.target.value })}
+          />
         </div>
 
         <label className="mt-3 flex cursor-pointer items-center gap-2 text-xs text-dim">
@@ -374,9 +277,6 @@ export function SettingsPage() {
             />{' '}
             加载模型列表
           </Button>
-          <Button onClick={onSave} disabled={saveSettings.isPending}>
-            <Save size={14} /> 保存配置
-          </Button>
         </div>
 
         {testResult && (
@@ -396,74 +296,135 @@ export function SettingsPage() {
             <CatalogSummary catalog={catalog} />
           </div>
         )}
+        <p className="mt-3 text-xs text-dim/60">改动会自动保存。</p>
       </Card>
 
+      {/* 2. 参数配置 */}
       <Card>
-        <CardTitle>生成默认值</CardTitle>
+        <CardTitle>参数配置</CardTitle>
         <div className="grid grid-cols-3 gap-3">
           <div>
-            <div className="label">默认时长（秒）</div>
+            <FieldLabel
+              text="视频步数"
+              tip="视频采样步数（默认 8）。越大越精细但越慢；配合官方 Turbo LoRA，8 步即可，一般无需调高。"
+            />
             <input
               type="number"
-              min={4}
-              max={15}
+              min={1}
+              max={50}
               className="input"
-              value={form.gen.duration_max}
+              value={form.gen.video_steps}
               onChange={(e) =>
-                patchGen({ duration_max: Number(e.target.value) || 10 })
+                patchGen({ video_steps: Number(e.target.value) || 8 })
               }
             />
           </div>
           <div>
-            <div className="label">默认清晰度（MP）</div>
+            <FieldLabel
+              text="音频步数"
+              tip="音频采样步数（默认 8）。仅当集群装了多速率采样节点（MiniMaxH3MultiRateSamplerEXPT8）时才单独生效，否则与视频同步。"
+            />
             <input
               type="number"
-              step="0.1"
+              min={1}
+              max={50}
               className="input"
-              value={form.gen.megapixels}
+              value={form.gen.audio_steps}
               onChange={(e) =>
-                patchGen({ megapixels: Number(e.target.value) || 0.5 })
+                patchGen({ audio_steps: Number(e.target.value) || 8 })
               }
             />
           </div>
           <div>
-            <div className="label">默认种子（0=随机）</div>
-            <input
-              type="number"
-              className="input"
-              value={form.gen.seed}
-              onChange={(e) => patchGen({ seed: Number(e.target.value) || 0 })}
+            <FieldLabel
+              text="Sage 加速"
+              tip="开=一直用 SageAttention 加速；关=完全不用（更稳但更慢，约 2.4×）。注意：13–15s + 768p 开 Sage 会崩，请配合下面的时长限制使用。"
             />
+            <label className="flex cursor-pointer items-center gap-2 text-xs text-dim">
+              <input
+                type="checkbox"
+                className="accent-acc"
+                checked={form.gen.sage_enabled}
+                onChange={(e) => patchGen({ sage_enabled: e.target.checked })}
+              />
+              {form.gen.sage_enabled ? '开启' : '关闭'}
+            </label>
           </div>
         </div>
+
+        <div className="my-4 border-t border-line/70" />
+        <button
+          type="button"
+          onClick={() => setSecondOpen((v) => !v)}
+          className="flex w-full items-center gap-1.5 text-xs font-medium text-dim transition hover:text-ink"
+        >
+          <ChevronDown
+            size={14}
+            className={cn('transition', secondOpen && 'rotate-180')}
+          />
+          二采精修
+          <span className="text-dim/60">
+            {form.gen.second_pass ? '（已开启）' : '（可选）'}
+          </span>
+        </button>
+        {secondOpen && (
+          <div className="mt-2 grid grid-cols-3 gap-3">
+            <div>
+              <FieldLabel
+                text="二采精修"
+                tip="开启后对视频 latent 做二次采样精修（改善中远景面部/细节），耗时更长、显存占用更高。注意：24G 显存下配合 720P/768p 会 OOM，请用较低清晰度（≤0.5MP）。"
+              />
+              <label className="flex cursor-pointer items-center gap-2 text-xs text-dim">
+                <input
+                  type="checkbox"
+                  className="accent-acc"
+                  checked={form.gen.second_pass}
+                  onChange={(e) => patchGen({ second_pass: e.target.checked })}
+                />
+                {form.gen.second_pass ? '开启' : '关闭'}
+              </label>
+            </div>
+            <div>
+              <FieldLabel
+                text="放大倍数（需二采）"
+                tip="仅在“二采精修”开启时生效：二采 latent 的放大倍数（1.5≈1.5×）。越大越清晰但越慢；受原生上限约束，过大只会发虚。"
+              />
+              <input
+                type="number"
+                step="0.1"
+                min={1}
+                max={3}
+                disabled={!form.gen.second_pass}
+                className="input"
+                value={form.gen.second_scale}
+                onChange={(e) =>
+                  patchGen({ second_scale: Number(e.target.value) || 1.5 })
+                }
+              />
+            </div>
+            <div>
+              <FieldLabel
+                text="二采重采样强度"
+                tip="二采的重采样强度（0.1–1，默认 0.3）：越低越贴近一采结果，越高细节越多但过大易失真。"
+              />
+              <input
+                type="number"
+                step="0.05"
+                min={0.1}
+                max={1}
+                disabled={!form.gen.second_pass}
+                className="input"
+                value={form.gen.second_denoise}
+                onChange={(e) =>
+                  patchGen({ second_denoise: Number(e.target.value) || 0.3 })
+                }
+              />
+            </div>
+          </div>
+        )}
       </Card>
 
-      <Card>
-        <CardTitle>模型文件名覆盖</CardTitle>
-        <p className="mb-3 text-xs text-dim/70">
-          留空使用内置明文默认值；可点上方「加载模型列表」从云端读取可用文件名。
-        </p>
-        <div className="grid grid-cols-2 gap-3">
-          {MODEL_KEYS.map((m) => (
-            <ModelSelect
-              key={m.key}
-              label={m.label}
-              value={form.models[m.key] ?? ''}
-              options={catalog?.files[m.from] ?? []}
-              onChange={(v) =>
-                setForm((f) => {
-                  if (!f) return f
-                  const models = { ...f.models }
-                  if (v) models[m.key] = v
-                  else delete models[m.key]
-                  return { ...f, models }
-                })
-              }
-            />
-          ))}
-        </div>
-      </Card>
-
+      {/* 3. 版本与授权 */}
       <Card>
         <CardTitle
           icon={<ShieldCheck size={15} />}
@@ -473,7 +434,7 @@ export function SettingsPage() {
             </Badge>
           }
         >
-          授权与版本
+          版本与授权
         </CardTitle>
         {isDesktop ? (
           <>
@@ -482,11 +443,15 @@ export function SettingsPage() {
               <div className="label">本机机器码</div>
               <div className="flex gap-2">
                 <input
-                  readOnly
-                  className="input"
+                  disabled
+                  className="input min-w-0 flex-1"
                   value={machine?.display ?? '获取中…'}
                 />
-                <Button onClick={copyMachineCode} disabled={!machine}>
+                <Button
+                  className="shrink-0"
+                  onClick={copyMachineCode}
+                  disabled={!machine}
+                >
                   <Copy size={14} /> 复制
                 </Button>
               </div>

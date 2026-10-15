@@ -2,7 +2,7 @@
   "name": "jueying-desktop",
   "productName": "掘影",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "掘影 视频生成工作台（Electron + React）",
   "author": "掘影",
   "type": "module",
@@ -75,6 +75,10 @@
       {
         "from": "resources/backend",
         "to": "backend"
+      },
+      {
+        "from": "resources/cases.zip",
+        "to": "cases.zip"
       }
     ],
     "win": {

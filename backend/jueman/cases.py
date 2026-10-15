@@ -96,7 +96,11 @@ def list_cases():
             "hasCover": bool(cover and os.path.isfile(os.path.join(cd, cover))),
             "shots": len(meta.get("shots") or []),
         })
-    return {"installed": len(items) > 0, "items": items}
+    return {
+        "installed": len(items) > 0,
+        "bundled": bool(_bundled_zip()),
+        "items": items,
+    }
 
 
 def case_cover(name):
@@ -118,6 +122,13 @@ def _set_install(**kw):
 def install_status():
     with _install_lock:
         return dict(_install)
+
+
+def _bundled_zip():
+    """随安装包内置的案例包（由桌面端通过 JUEMAN_CASES_ZIP 传入）。
+    存在时首次使用直接本地解压，完全不依赖 GitHub / 外网。"""
+    p = (os.environ.get("JUEMAN_CASES_ZIP") or "").strip()
+    return p if p and os.path.isfile(p) else None
 
 
 def _latest_download_url():
@@ -182,6 +193,18 @@ def _download(url, part):
 
 
 def _install_worker():
+    # 优先用随安装包内置的案例包本地解压：无需联网，国内用户也能秒装。
+    bundled = _bundled_zip()
+    if bundled:
+        _set_install(state="downloading", progress=0, error="")
+        try:
+            with zipfile.ZipFile(bundled, "r") as z:
+                z.extractall(cases_dir())
+            _set_install(state="done", progress=100, error="")
+            return
+        except Exception:
+            pass  # 内置包损坏 → 退回在线下载
+
     part = os.path.join(cases_dir(), CASES_ASSET + ".part")
     _set_install(state="downloading", progress=0, error="")
     last = None

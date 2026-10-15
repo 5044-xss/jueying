@@ -13,6 +13,9 @@ import { Tip } from '../components/ui/Tip'
 import { cn } from '../lib/utils'
 import { toast } from '../store/toast'
 
+const DOWNLOAD_MIRROR_URL =
+  'https://my.feishu.cn/drive/folder/QOcnfK8Qplz3UednW7scAqUOngd?from=from_copylink'
+
 const cloudSchema = z
   .object({
     type: z.string(),
@@ -480,9 +483,12 @@ export function SettingsPage() {
                     variant="primary"
                     onClick={() => window.jueman?.openExternal(updateResult.url!)}
                   >
-                    <Download size={14} /> 前往下载 v{updateResult.latest}
+                    <Download size={14} /> 立即更新 v{updateResult.latest}
                   </Button>
                 ) : null)}
+              <Button onClick={() => window.jueman?.openExternal(DOWNLOAD_MIRROR_URL)}>
+                <Download size={14} /> 下载地址
+              </Button>
               {updateResult?.ok && !updateResult.hasUpdate && (
                 <span className="flex items-center gap-1.5 text-xs text-ok">
                   <CheckCircle2 size={14} /> {updateResult.note ?? '已是最新版本'}

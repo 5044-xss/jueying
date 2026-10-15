@@ -74,6 +74,7 @@ export interface CaseInfo {
 
 export interface CasesList {
   installed: boolean
+  bundled: boolean
   items: CaseInfo[]
 }
 

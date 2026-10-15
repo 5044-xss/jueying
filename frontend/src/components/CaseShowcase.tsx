@@ -86,7 +86,7 @@ export function CaseShowcase() {
           toast.success('案例已就绪')
         } else if (s.state === 'error') {
           setInstalling(false)
-          toast.error(`案例下载失败：${s.error}`)
+          toast.error(`案例安装失败：${s.error}`)
         } else {
           window.setTimeout(tick, 1500)
         }
@@ -125,6 +125,7 @@ export function CaseShowcase() {
   }
 
   const items = data?.items ?? []
+  const bundled = data?.bundled ?? false
 
   return (
     <section className="flex flex-col gap-3">
@@ -136,18 +137,20 @@ export function CaseShowcase() {
       {data && !data.installed ? (
         <div className="flex flex-col items-center gap-3 rounded-3xl border border-dashed border-line px-4 py-10 text-center">
           <CloudDownload size={22} className="text-dim" />
-          <div className="text-sm text-ink">案例需要先下载一次（约几十 MB）</div>
+          <div className="text-sm text-ink">
+            {bundled ? '案例已随软件内置，安装一次即可使用' : '案例需要先下载一次（约几十 MB）'}
+          </div>
           <div className="text-xs text-dim">
-            下载后存在本地，之后离线可用，升级软件不会重复下载
+            安装后存在本地，之后离线可用，升级软件不会重复下载
           </div>
           {installing ? (
             <div className="flex items-center gap-2 text-xs text-dim">
               <Spinner className="h-4 w-4" />
-              正在下载 {status?.progress ?? 0}%
+              {bundled ? '正在安装' : '正在下载'} {status?.progress ?? 0}%
             </div>
           ) : (
             <Button variant="primary" onClick={() => void onInstall()}>
-              <CloudDownload size={14} /> 下载案例
+              <CloudDownload size={14} /> {bundled ? '安装案例' : '下载案例'}
             </Button>
           )}
         </div>

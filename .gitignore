@@ -9,6 +9,9 @@ backend/config.json
 backend/data/
 backend/cases/
 
+# 内置案例包（随安装包分发，体积大不入库）
+frontend/resources/cases.zip
+
 # 日志
 *.log
 logs/

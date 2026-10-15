@@ -159,6 +159,15 @@ function resolveBackend() {
   return null
 }
 
+// 内置案例包路径（随安装包分发，首次使用本地解压，免 GitHub 下载）。
+//   生产：process.resourcesPath/cases.zip；开发：frontend/resources/cases.zip
+function casesZipPath() {
+  const candidates = isDev
+    ? [path.join(__dirname, '..', 'resources', 'cases.zip')]
+    : [path.join(process.resourcesPath, 'cases.zip')]
+  return candidates.find((p) => fs.existsSync(p)) || null
+}
+
 function startBackend(spec, port) {
   const home = dataHome()
   fs.mkdirSync(home, { recursive: true })
@@ -170,6 +179,7 @@ function startBackend(spec, port) {
       logStream = null
     }
   }
+  const casesZip = casesZipPath()
   log(`spawn backend: ${spec.cmd} ${spec.args.join(' ')} (port=${port}, home=${home})`)
   backendProc = spawn(spec.cmd, spec.args, {
     cwd: spec.cwd,
@@ -177,6 +187,7 @@ function startBackend(spec, port) {
       ...process.env,
       JUEMAN_HOME: home,
       JUEMAN_PORT: String(port),
+      JUEMAN_CASES_ZIP: casesZip || '',
       PYTHONIOENCODING: 'utf-8',
       PYTHONUTF8: '1',
     },

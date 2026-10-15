@@ -15,20 +15,25 @@ export function AppShell({ children }: { children: ReactNode }) {
   const setView = useUI((s) => s.setView)
 
   return (
-    <div className="flex h-full">
-      {/* 左侧悬浮导航轨道 */}
-      <div className="drag-region relative w-[72px] shrink-0">
-        <div className="drag-region fixed left-4 top-3 z-40 flex items-center gap-2.5">
+    <div className="flex h-full flex-col">
+      {/* 顶部导航栏：左 logo / 中导航 / 右状态，背景极淡渐隐，避免硬分层 */}
+      <header className="drag-region relative grid shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-3 px-4 py-2.5 sm:px-6">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 bg-gradient-to-b from-white/45 to-transparent"
+        />
+
+        <div className="relative flex items-center gap-2.5 justify-self-start">
           <div className="h-8 w-8 overflow-hidden rounded-xl bg-ink">
             <img src="app-icon.png" alt="掘影" className="h-8 w-8 object-cover" />
           </div>
-          <div className="leading-tight">
+          <div className="hidden leading-tight sm:block">
             <div className="text-sm font-bold tracking-tight">掘影</div>
             <div className="text-[11px] text-dim">视频生成工作台</div>
           </div>
         </div>
 
-        <nav className="no-drag fixed left-4 top-1/2 z-40 flex -translate-y-1/2 flex-col gap-1 rounded-full border border-line bg-canvas/85 p-1.5 shadow-lift backdrop-blur">
+        <nav className="no-drag relative flex items-center gap-1 justify-self-center rounded-full border border-line bg-canvas/85 p-1 shadow-lift">
           {nav.map((it) => (
             <button
               key={it.value}
@@ -36,23 +41,25 @@ export function AppShell({ children }: { children: ReactNode }) {
               title={it.label}
               aria-label={it.label}
               className={cn(
-                'grid h-10 w-10 place-items-center rounded-full transition',
+                'inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium transition',
                 view === it.value
                   ? 'bg-ink text-white'
                   : 'text-dim hover:bg-soft hover:text-ink',
               )}
             >
               {it.icon}
+              {it.label}
             </button>
           ))}
         </nav>
-      </div>
 
-      <main className="min-h-0 flex-1 overflow-y-auto">
-        <div className="no-drag fixed right-4 top-3 z-40">
+        <div className="no-drag relative justify-self-end">
           <ConnectionBadge />
         </div>
-        <div className="mx-auto w-full max-w-[1280px] px-4 pb-10 pt-16 sm:px-6 lg:px-8">
+      </header>
+
+      <main className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-[1280px] px-4 pb-10 pt-5 sm:px-6 lg:px-8">
           {children}
         </div>
       </main>

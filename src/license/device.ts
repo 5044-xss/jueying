@@ -10,7 +10,7 @@ import type {
 } from './types'
 
 const PRODUCT = 'jueying'
-const PUBLIC_KEY_B64 = 'MCowBQYDK2VwAyEA9FYp+8pO14P39bg/T9RqHI2wxwYi42+FEj9gru51Xro='
+const PUBLIC_KEY_B64 = 'MCowBQYDK2VwAyEAV3Y7o43+5FnPWh3YQ4ayKl40LQSer1t3om4NzLoDKYY='
 const STORAGE_KEY = 'jueying.license.key.v1'
 const INSTALL_KEY = 'jueying.install.id.v1'
 

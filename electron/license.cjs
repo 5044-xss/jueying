@@ -4,7 +4,7 @@ const path = require('node:path')
 const { getMachineCode, formatCode } = require('./machine-id.cjs')
 const { publicKey: PUBLIC_KEY_B64 } = require('./license-public.cjs')
 
-const PRODUCTION_BASE_URL = 'https://api.example.com:7000'
+const PRODUCTION_BASE_URL = 'http://101.43.46.217'
 const DEV_BASE_URL = 'http://127.0.0.1:7000'
 const PRODUCT = 'jueying'
 const LICENSE_FILE = 'license.key'

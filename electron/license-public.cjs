@@ -1,3 +1,3 @@
 module.exports = {
-  publicKey: 'MCowBQYDK2VwAyEA9FYp+8pO14P39bg/T9RqHI2wxwYi42+FEj9gru51Xro=',
+  publicKey: 'MCowBQYDK2VwAyEAV3Y7o43+5FnPWh3YQ4ayKl40LQSer1t3om4NzLoDKYY=',
 }

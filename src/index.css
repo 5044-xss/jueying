@@ -1,0 +1,171 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Figma monochrome core */
+  --canvas: 255 255 255;
+  --soft: 247 247 245;
+  --line: 226 226 222;
+  --ink: 0 0 0;
+  --dim: 107 107 103;
+
+  /* Accent stays ink: primary actions are pure black */
+  --acc: 0 0 0;
+  --acc2: 0 0 0;
+
+  /* Semantic */
+  --ok: 30 166 74;
+  --warn: 178 116 14;
+  --err: 210 42 42;
+
+  /* Pastel color blocks */
+  --lime: 220 238 177;
+  --mint: 200 230 205;
+  --cream: 244 236 214;
+  --lilac: 197 176 244;
+  --pink: 239 212 212;
+  --coral: 243 201 182;
+  --aqua: 190 231 238;
+  --navy: 31 29 61;
+
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: rgb(var(--canvas));
+  color: rgb(var(--ink));
+  font:
+    14px/1.5 Inter,
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    'Microsoft YaHei',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+::selection {
+  background: rgb(var(--lime));
+  color: #000;
+}
+
+/* 滚动条 */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--ink) / 0.14);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--ink) / 0.3);
+  background-clip: content-box;
+}
+
+@layer components {
+  .card {
+    @apply rounded-[20px] border border-line bg-canvas p-5;
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.04);
+    transition:
+      border-color 0.2s ease,
+      box-shadow 0.2s ease;
+  }
+  .card:hover {
+    border-color: rgb(var(--ink) / 0.18);
+  }
+  .label {
+    @apply mb-1.5 block text-[11px] font-medium text-dim;
+  }
+  .input {
+    @apply w-full rounded-lg border border-line bg-canvas px-3.5 py-2.5 text-sm text-ink
+      outline-none transition placeholder:text-dim/60 focus:border-ink/50 focus:ring-4
+      focus:ring-ink/5 disabled:opacity-50;
+  }
+  select.input {
+    -webkit-appearance: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.75rem center;
+    background-size: 14px;
+    padding-right: 2.25rem;
+  }
+  .btn {
+    @apply inline-flex select-none items-center justify-center gap-2 rounded-full border border-line
+      bg-canvas px-4 py-2 text-sm font-medium text-ink transition hover:bg-soft
+      disabled:cursor-not-allowed disabled:opacity-40;
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.04);
+  }
+  .btn-primary {
+    @apply border-transparent bg-ink text-white hover:bg-ink/85;
+    box-shadow: 0 8px 20px -12px rgb(0 0 0 / 0.5);
+  }
+  .btn-ghost {
+    @apply border-transparent bg-transparent shadow-none hover:bg-soft;
+  }
+  .chip {
+    @apply cursor-pointer rounded-md border border-line bg-canvas px-2.5 py-1 text-xs font-medium
+      text-ink transition hover:bg-soft;
+  }
+  .section-title {
+    @apply font-mono text-[11px] font-semibold uppercase tracking-[0.12em] text-dim;
+  }
+}
+
+/* 粉彩色块 */
+.block {
+  border-radius: 16px;
+}
+.block-lime {
+  background: rgb(var(--lime));
+}
+.block-mint {
+  background: rgb(var(--mint));
+}
+.block-cream {
+  background: rgb(var(--cream));
+}
+.block-lilac {
+  background: rgb(var(--lilac));
+}
+.block-pink {
+  background: rgb(var(--pink));
+}
+.block-coral {
+  background: rgb(var(--coral));
+}
+.block-navy {
+  background: rgb(var(--navy));
+  color: #fff;
+}
+
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.drag-region {
+  -webkit-app-region: drag;
+}
+.no-drag {
+  -webkit-app-region: no-drag;
+}

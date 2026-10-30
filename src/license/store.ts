@@ -1,5 +1,6 @@
 import { create } from 'zustand'
-import type { LicenseState } from './types'
+import type { LicenseBridge, LicenseState } from './types'
+import { createDeviceLicenseBridge } from './device'
 
 const initial: LicenseState = {
   phase: 'loading',
@@ -7,7 +8,7 @@ const initial: LicenseState = {
   allowed: false,
   machineCode: null,
   machineDisplay: null,
-  message: '正在校验授权…',
+  message: '正在校验授权',
   offline: false,
   warning: null,
   error: null,
@@ -24,20 +25,6 @@ const initial: LicenseState = {
   checkedAt: null,
 }
 
-function bypassState(): LicenseState {
-  return {
-    ...initial,
-    phase: 'ready',
-    status: 'active',
-    allowed: true,
-    message: '当前环境未启用桌面授权校验',
-  }
-}
-
-function runningInElectron(): boolean {
-  return typeof navigator !== 'undefined' && /Electron/i.test(navigator.userAgent)
-}
-
 function failureState(message: string, error: unknown): LicenseState {
   return {
     ...initial,
@@ -46,6 +33,15 @@ function failureState(message: string, error: unknown): LicenseState {
     message,
     error: String((error as Error)?.message || error),
   }
+}
+
+let licenseBridge: LicenseBridge | null = null
+
+function getBridge(): LicenseBridge {
+  if (!licenseBridge) {
+    licenseBridge = window.desktop?.license ?? createDeviceLicenseBridge()
+  }
+  return licenseBridge
 }
 
 interface LicenseStore {
@@ -70,16 +66,7 @@ export const useLicense = create<LicenseStore>()((set, get) => ({
     if (started) return starting ?? Promise.resolve()
     started = true
 
-    const bridge = window.desktop?.license
-    if (!bridge) {
-      if (window.desktop?.isDesktop || runningInElectron()) {
-        set({ state: failureState('授权模块未加载', new Error('license bridge missing')) })
-      } else {
-        set({ state: bypassState() })
-      }
-      return Promise.resolve()
-    }
-
+    const bridge = getBridge()
     bridge.onUpdate((state) => set({ state }))
 
     starting = (async () => {
@@ -95,8 +82,8 @@ export const useLicense = create<LicenseStore>()((set, get) => ({
   },
 
   refresh: async () => {
-    const bridge = window.desktop?.license
-    if (!bridge || get().checking) return
+    if (get().checking) return
+    const bridge = getBridge()
 
     set({ checking: true })
     try {
@@ -115,9 +102,8 @@ export const useLicense = create<LicenseStore>()((set, get) => ({
   },
 
   activate: async (code) => {
-    const bridge = window.desktop?.license
-    if (!bridge) return { ok: false, error: '当前环境不支持授权激活' }
     if (get().activating) return { ok: false, error: '正在激活，请稍候' }
+    const bridge = getBridge()
 
     set({ activating: true })
     try {
@@ -132,8 +118,7 @@ export const useLicense = create<LicenseStore>()((set, get) => ({
   },
 
   reset: async () => {
-    const bridge = window.desktop?.license
-    if (!bridge) return
+    const bridge = getBridge()
     set({ checking: true })
     try {
       const state = await bridge.reset()

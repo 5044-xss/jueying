@@ -75,8 +75,10 @@
   "dependencies": {
     "@capacitor/android": "^8.6.0",
     "@capacitor/core": "^8.6.0",
+    "@capacitor/device": "^8.0.3",
     "@capacitor/filesystem": "^8.1.5",
     "@capacitor/ios": "^8.6.0",
+    "@noble/ed25519": "^2.3.0",
     "clsx": "^2.1.1",
     "fflate": "^0.8.3",
     "lucide-react": "^0.544.0",

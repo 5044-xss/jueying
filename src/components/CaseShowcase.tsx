@@ -62,8 +62,17 @@ function CaseCard({
           muted
           loop
           playsInline
-          preload="metadata"
+          preload="auto"
           className="pointer-events-none size-full object-cover"
+          onLoadedMetadata={(event) => {
+            const node = event.currentTarget
+            if (node.currentTime !== 0 || node.duration <= 0) return
+            try {
+              node.currentTime = Math.min(0.08, node.duration / 2)
+            } catch {
+              // 保持原生首帧
+            }
+          }}
         />
       )}
       <span

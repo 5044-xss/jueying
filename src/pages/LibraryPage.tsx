@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
+import { Capacitor } from '@capacitor/core'
 import { Library, Search, Upload } from 'lucide-react'
 import { newId } from '@/core/id'
-import type { LibraryAsset } from '@/core/types'
+import type { LibraryAsset, MediaRef } from '@/core/types'
 import { mediaKind } from '@/lib/assets'
-import { readMedia } from '@/lib/media'
+import { pickGalleryImages, readMedia } from '@/lib/media'
 import { useApp } from '@/store/app'
 import { AssetGrid, type AssetItem } from '@/components/AssetGrid'
 import { PageHeader } from '@/ui/PageHeader'
@@ -17,6 +18,8 @@ export function LibraryPage() {
   const [query, setQuery] = useState('')
   const [uploading, setUploading] = useState(false)
   const [confirm, setConfirm] = useState<LibraryAsset | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
+  const native = Capacitor.isNativePlatform()
 
   const filtered = useMemo(() => {
     const keyword = query.trim().toLowerCase()
@@ -32,26 +35,48 @@ export function LibraryPage() {
     source: a.sourceProjectName,
   }))
 
+  const addMedia = (media: MediaRef[]) => {
+    if (!media.length) return
+    media.forEach((item) => {
+      addAsset({
+        id: newId('asset'),
+        name: item.name,
+        kind: mediaKind(item.name),
+        url: item.url,
+        path: item.path,
+        createdAt: Date.now(),
+      })
+    })
+    toast(media.length > 1 ? `已上传 ${media.length} 个素材` : `已上传：${media[0].name}`)
+  }
+
   const upload = (files: FileList | null) => {
     const list = Array.from(files ?? [])
     if (!list.length || uploading) return
     void (async () => {
       setUploading(true)
       try {
-        const media = await Promise.all(list.map(readMedia))
-        list.forEach((file, i) => {
-          addAsset({
-            id: newId('asset'),
-            name: file.name,
-            kind: mediaKind(file.name),
-            url: media[i]?.url,
-            path: media[i]?.path,
-            createdAt: Date.now(),
-          })
-        })
-        toast(list.length > 1 ? `已上传 ${list.length} 个素材` : `已上传：${list[0].name}`)
+        addMedia(await Promise.all(list.map(readMedia)))
       } catch (err) {
         toast(`上传失败：${(err as Error).message}`, 'err')
+      } finally {
+        setUploading(false)
+      }
+    })()
+  }
+
+  const uploadFromGallery = () => {
+    if (uploading) return
+    if (!native) {
+      fileRef.current?.click()
+      return
+    }
+    void (async () => {
+      setUploading(true)
+      try {
+        addMedia(await pickGalleryImages())
+      } catch (err) {
+        toast(`打开图库失败：${(err as Error).message}`, 'err')
       } finally {
         setUploading(false)
       }
@@ -68,23 +93,30 @@ export function LibraryPage() {
         description="全局可复用的图片素材。项目素材页可存入这里，生成台上传时可直接选用。"
         block="pink"
         actions={
-          <label className={`btn ${uploading ? 'pointer-events-none opacity-50' : ''}`}>
+          <button
+            type="button"
+            className={`btn ${uploading ? 'pointer-events-none opacity-50' : ''}`}
+            onClick={uploadFromGallery}
+            disabled={uploading}
+          >
             <Upload size={15} />
-            {uploading ? '上传中…' : '上传素材'}
-            <input
-              type="file"
-              accept="image/*,audio/*"
-              multiple
-              className="hidden"
-              onChange={(e) => {
-                upload(e.target.files)
-                e.target.value = ''
-              }}
-            />
-          </label>
+            {uploading ? '上传中…' : native ? '从图库选择' : '上传素材'}
+          </button>
         }
       />
       </div>
+
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*,audio/*"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          upload(e.target.files)
+          e.target.value = ''
+        }}
+      />
 
       {assets.length === 0 ? (
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-line bg-canvas px-6 py-14 text-center">
@@ -93,20 +125,15 @@ export function LibraryPage() {
           <p className="max-w-md text-xs leading-relaxed text-dim">
             在项目详情的「素材」页点素材卡片上的入库按钮，或在右上角直接上传素材。
           </p>
-          <label className="btn mt-1">
+          <button
+            type="button"
+            className="btn mt-1"
+            onClick={uploadFromGallery}
+            disabled={uploading}
+          >
             <Upload size={14} />
-            上传素材
-            <input
-              type="file"
-              accept="image/*,audio/*"
-              multiple
-              className="hidden"
-              onChange={(e) => {
-                upload(e.target.files)
-                e.target.value = ''
-              }}
-            />
-          </label>
+            {uploading ? '上传中…' : native ? '从图库选择' : '上传素材'}
+          </button>
         </div>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col gap-3">

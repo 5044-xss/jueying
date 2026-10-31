@@ -27,12 +27,12 @@ export function Modal({ title, onClose, children, footer, wide }: ModalProps) {
     >
       <div
         className={cn(
-          'max-h-[86dvh] w-full animate-rise overflow-y-auto rounded-[24px] border border-line bg-canvas p-6 shadow-lift',
+          'flex max-h-[86dvh] w-full animate-rise flex-col overflow-hidden rounded-[24px] border border-line bg-canvas p-6 shadow-lift',
           wide ? 'max-w-2xl' : 'max-w-lg',
         )}
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <div className="mb-4 flex items-center">
+        <div className="mb-4 flex shrink-0 items-center">
           <h3 className="text-[16px] font-semibold tracking-tight text-ink">{title}</h3>
           <button
             className="ml-auto grid h-8 w-8 place-items-center rounded-full bg-soft text-ink transition hover:bg-line/70"
@@ -42,8 +42,14 @@ export function Modal({ title, onClose, children, footer, wide }: ModalProps) {
             <X size={15} />
           </button>
         </div>
-        <div className="space-y-4 text-sm text-dim">{children}</div>
-        {footer && <div className="mt-6 flex justify-end gap-2">{footer}</div>}
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto text-sm text-dim">
+          {children}
+        </div>
+        {footer && (
+          <div className="mt-6 flex shrink-0 flex-wrap items-center justify-end gap-2">
+            {footer}
+          </div>
+        )}
       </div>
     </div>,
     document.body,

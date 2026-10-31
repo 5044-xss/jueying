@@ -1,6 +1,8 @@
 import { useState } from 'react'
-import { FolderOpen, Maximize2 } from 'lucide-react'
+import { Capacitor } from '@capacitor/core'
+import { Download, FolderOpen, Loader2 } from 'lucide-react'
 import type { Shot } from '@/core/types'
+import { shareNativeMedia } from '@/platform/localMedia'
 import { useApp } from '@/store/app'
 import { Modal } from '@/ui/Modal'
 import { cn } from '@/lib/utils'
@@ -21,6 +23,10 @@ export function ShotPreviewModal({
 }) {
   const toast = useApp((s) => s.toast)
   const [tab, setTab] = useState<Tab>('video')
+  const [saving, setSaving] = useState(false)
+
+  const canReveal = Boolean(window.desktop?.media?.reveal)
+  const canShare = Capacitor.isNativePlatform() && Boolean(shot.outputPath)
 
   const reveal = () => {
     if (!shot.output) return
@@ -28,14 +34,22 @@ export function ShotPreviewModal({
       void window.desktop.media
         .reveal(shot.output)
         .catch(() => toast('打开成片目录失败', 'err'))
-    } else {
-      toast('请使用桌面端打开成片目录', 'err')
     }
   }
 
-  const fullscreen = () => {
-    const video = document.getElementById('shot-player') as HTMLVideoElement | null
-    void video?.requestFullscreen()
+  const share = () => {
+    if (!shot.outputPath || saving) return
+    void (async () => {
+      setSaving(true)
+      try {
+        const ok = await shareNativeMedia(shot.outputPath as string, shot.name)
+        if (!ok) toast('当前环境不支持分享', 'err')
+      } catch (err) {
+        toast(`保存失败：${(err as Error).message}`, 'err')
+      } finally {
+        setSaving(false)
+      }
+    })()
   }
 
   return (
@@ -45,14 +59,20 @@ export function ShotPreviewModal({
       wide
       footer={
         <>
-          <button className="btn" onClick={reveal} disabled={!shot.output}>
-            <FolderOpen size={14} />
-            打开成片目录
-          </button>
-          {tab === 'video' && (
-            <button className="btn" onClick={fullscreen} disabled={!shot.output}>
-              <Maximize2 size={14} />
-              全屏播放
+          {canReveal && (
+            <button className="btn" onClick={reveal} disabled={!shot.output}>
+              <FolderOpen size={14} />
+              打开成片目录
+            </button>
+          )}
+          {canShare && (
+            <button className="btn" onClick={share} disabled={saving || !shot.output}>
+              {saving ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <Download size={14} />
+              )}
+              {saving ? '准备中…' : '保存/分享'}
             </button>
           )}
           <button className="btn btn-primary" onClick={onClose}>
@@ -84,6 +104,8 @@ export function ShotPreviewModal({
             src={shot.output}
             controls
             autoPlay
+            playsInline
+            preload="metadata"
             className="w-full rounded-xl bg-black"
           />
         ) : (

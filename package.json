@@ -74,10 +74,12 @@
   },
   "dependencies": {
     "@capacitor/android": "^8.6.0",
+    "@capacitor/camera": "^8.2.6",
     "@capacitor/core": "^8.6.0",
     "@capacitor/device": "^8.0.3",
     "@capacitor/filesystem": "^8.1.5",
     "@capacitor/ios": "^8.6.0",
+    "@capacitor/share": "^8.0.3",
     "@noble/ed25519": "^2.3.0",
     "clsx": "^2.1.1",
     "fflate": "^0.8.3",

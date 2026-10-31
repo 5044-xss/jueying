@@ -1,5 +1,6 @@
 import { useEffect, type ReactNode } from 'react'
 import { Loader2, ShieldAlert, ShieldCheck, WifiOff } from 'lucide-react'
+import { useNow } from '@/lib/useNow'
 import { cn } from '@/lib/utils'
 import { ActivationForm } from './ActivationForm'
 import { formatDateTime } from './format'
@@ -112,19 +113,47 @@ export function ActivationScreen({ state }: { state: LicenseState }) {
   )
 }
 
+function expiryAt(state: LicenseState): number | null {
+  if (typeof state.exp === 'number') return state.exp
+  if (typeof state.trialLeftHours === 'number' && typeof state.serverTime === 'number') {
+    return state.serverTime + state.trialLeftHours * 3_600_000
+  }
+  return null
+}
+
+function withExpiry(state: LicenseState, now: number): LicenseState {
+  if (!state.allowed) return state
+  const expiresAt = expiryAt(state)
+  if (expiresAt === null) return state
+  const serverNow =
+    typeof state.serverTime === 'number' && typeof state.checkedAt === 'number'
+      ? now + (state.serverTime - state.checkedAt)
+      : now
+  if (serverNow < expiresAt) return state
+  return {
+    ...state,
+    status: 'expired',
+    allowed: false,
+    message: '授权或试用已过期',
+    warning: null,
+  }
+}
+
 export function LicenseGate({ children }: { children: ReactNode }) {
   const state = useLicense((s) => s.state)
   const init = useLicense((s) => s.init)
+  const now = useNow(state.allowed, 10_000)
+  const current = withExpiry(state, now)
 
   useEffect(() => {
     void init()
   }, [init])
 
-  if (state.phase === 'loading' || (!state.status && state.phase !== 'error')) {
-    return <LoadingScreen state={state} />
+  if (current.phase === 'loading' || (!current.status && current.phase !== 'error')) {
+    return <LoadingScreen state={current} />
   }
 
-  if (!state.allowed) return <ActivationScreen state={state} />
+  if (!current.allowed) return <ActivationScreen state={current} />
 
   return <>{children}</>
 }

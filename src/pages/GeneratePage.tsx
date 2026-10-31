@@ -714,6 +714,7 @@ function RecentShot({
   const endpoint = useApp(activeEndpoint)
   const endpoints = useApp((s) => s.data.endpoints)
   const updateShot = useApp((s) => s.updateShot)
+  const openProject = useApp((s) => s.openProject)
   const toast = useApp((s) => s.toast)
 
   if (!project || project.shots.length === 0) return null
@@ -757,10 +758,21 @@ function RecentShot({
           </span>
         </div>
         <p className="mt-0.5 truncate text-sm font-medium">{shot.name}</p>
-        <p className="mt-0.5 font-mono text-[10px] text-ink/55">
-          {project.name} · {shot.params.aspect} · {shot.params.duration}s
-          {active && typeof shot.progress === 'number' ? ` · ${shot.progress}%` : ''}
-        </p>
+        <div className="mt-0.5 flex min-w-0 items-center gap-2">
+          <p className="min-w-0 truncate font-mono text-[10px] text-ink/55">
+            {project.name} · {shot.params.aspect} · {shot.params.duration}s
+            {shot.state === 'running' && typeof shot.progress === 'number'
+              ? ` · ${shot.progress}%`
+              : ''}
+          </p>
+          <button
+            type="button"
+            onClick={() => openProject(project.id)}
+            className="shrink-0 text-[10px] text-dim underline underline-offset-4 transition hover:text-ink"
+          >
+            全部成片
+          </button>
+        </div>
         {active && (
           <JobProgress
             state={shot.state}

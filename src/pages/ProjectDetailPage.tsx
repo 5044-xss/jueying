@@ -1,8 +1,8 @@
 ﻿import { useMemo, useState } from 'react'
+import { Capacitor } from '@capacitor/core'
 import {
   ChevronLeft,
   Copy,
-  Download,
   Film,
   FolderOpen,
   Maximize2,
@@ -10,6 +10,7 @@ import {
   Play,
   Plus,
   Search,
+  Share2,
   Sparkles,
   Square,
   Trash2,
@@ -21,8 +22,8 @@ import { cancelShotJob } from '@/core/generate'
 import { mediaKind, mediaToAsset, projectAssets } from '@/lib/assets'
 import { elapsedText, isActiveShot } from '@/lib/jobs'
 import { readMedia } from '@/lib/media'
-import { downloadProjectFile } from '@/lib/projectFile'
 import { useNow } from '@/lib/useNow'
+import { shareNativeMedia } from '@/platform/localMedia'
 import { activeEndpoint, useApp } from '@/store/app'
 import { AssetGrid, type AssetItem } from '@/components/AssetGrid'
 import { ShotPreviewModal } from '@/components/ShotPreviewModal'
@@ -123,17 +124,6 @@ export function ProjectDetailPage({ projectId }: { projectId: string }) {
     })()
   }
 
-  const exportProject = () => {
-    void (async () => {
-      try {
-        await downloadProjectFile(project)
-        toast('已导出项目（含视频）')
-      } catch (err) {
-        toast(`导出失败：${(err as Error).message}`, 'err')
-      }
-    })()
-  }
-
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="mb-4 flex shrink-0 items-center gap-2 text-sm text-dim">
@@ -157,10 +147,6 @@ export function ProjectDetailPage({ projectId }: { projectId: string }) {
           block="cream"
           actions={
             <>
-              <button className="btn" onClick={exportProject}>
-                <Download size={15} />
-                导出
-              </button>
               <button
                 className="btn text-err hover:bg-err/5"
                 onClick={() => setConfirming(true)}
@@ -246,18 +232,8 @@ export function ProjectDetailPage({ projectId }: { projectId: string }) {
                     copyShot(project.id, shot.id)
                     toast('视频已复制')
                   }}
-                  onDelete={() => setConfirmShot(shot)}
-                  onReveal={() => {
-                    if (!shot.output) return
-                    if (window.desktop?.media?.reveal) {
-                      void window.desktop.media
-                        .reveal(shot.output)
-                        .catch(() => toast('打开文件夹失败', 'err'))
-                    } else {
-                      toast('请使用桌面端打开文件夹', 'err')
-                    }
-                  }}
-                />
+                   onDelete={() => setConfirmShot(shot)}
+                 />
               ))}
               </div>
             </div>
@@ -448,7 +424,6 @@ function ShotCard({
   onEdit,
   onCopy,
   onDelete,
-  onReveal,
 }: {
   shot: Shot
   now: number
@@ -456,7 +431,6 @@ function ShotCard({
   onEdit: () => void
   onCopy: () => void
   onDelete: () => void
-  onReveal: () => void
 }) {
   const pill = PILL[shot.state]
   const active = isActiveShot(shot)
@@ -464,6 +438,34 @@ function ShotCard({
   const endpoints = useApp((s) => s.data.endpoints)
   const updateShot = useApp((s) => s.updateShot)
   const toast = useApp((s) => s.toast)
+  const native = Capacitor.isNativePlatform()
+  const [sharing, setSharing] = useState(false)
+
+  const openOutput = () => {
+    if (!shot.output) return
+    if (window.desktop?.media?.reveal) {
+      void window.desktop.media
+        .reveal(shot.output)
+        .catch(() => toast('打开文件夹失败', 'err'))
+      return
+    }
+    if (native && shot.outputPath) {
+      if (sharing) return
+      setSharing(true)
+      void (async () => {
+        try {
+          const ok = await shareNativeMedia(shot.outputPath as string, shot.name)
+          if (!ok) toast('当前环境不支持分享', 'err')
+        } catch (err) {
+          toast(`保存失败：${(err as Error).message}`, 'err')
+        } finally {
+          setSharing(false)
+        }
+      })()
+      return
+    }
+    toast('成片未保存到本地', 'err')
+  }
 
   const cancel = () => {
     const target = endpoints.find((e) => e.id === shot.endpointId) ?? endpoint
@@ -510,13 +512,13 @@ function ShotCard({
         <b className="min-w-0 flex-1 truncate text-sm font-medium">{shot.name}</b>
         <button
           type="button"
-          onClick={onReveal}
-          disabled={!shot.output}
-          title="打开所在文件夹"
-          aria-label="打开所在文件夹"
+          onClick={openOutput}
+          disabled={!shot.output || sharing}
+          title={native ? '保存/分享成片' : '打开所在文件夹'}
+          aria-label={native ? '保存或分享成片' : '打开所在文件夹'}
           className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-dim transition hover:bg-soft hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
         >
-          <FolderOpen size={13} />
+          {native ? <Share2 size={13} /> : <FolderOpen size={13} />}
         </button>
       </div>
       <p className="px-3 text-xs text-dim">
@@ -528,8 +530,10 @@ function ShotCard({
           <div className="flex items-center gap-2">
             <span className="min-w-0 flex-1 font-mono text-[10px] text-dim">
               {pill.label}
-              {typeof shot.progress === 'number' ? ` ${shot.progress}%` : ''} ·{' '}
-              {elapsedText(shot.createdAt, now)}
+              {shot.state === 'running' && typeof shot.progress === 'number'
+                ? ` ${shot.progress}%`
+                : ''}{' '}
+              · {elapsedText(shot.createdAt, now)}
             </span>
             <button
               type="button"

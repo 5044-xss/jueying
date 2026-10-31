@@ -11,7 +11,10 @@ import type {
 
 const PRODUCT = 'jueying'
 const PUBLIC_KEY_B64 = 'MCowBQYDK2VwAyEAV3Y7o43+5FnPWh3YQ4ayKl40LQSer1t3om4NzLoDKYY='
-const BASE_URL = (import.meta.env.VITE_LICENSE_API || 'http://101.43.46.217').replace(/\/+$/, '')
+const DEV_WEB = !Capacitor.isNativePlatform() && import.meta.env.DEV
+const BASE_URL = DEV_WEB
+  ? ''
+  : (import.meta.env.VITE_LICENSE_API || 'http://101.43.46.217').replace(/\/+$/, '')
 const STORAGE_KEY = 'jueying.license.key.v1'
 const CACHE_KEY = 'jueying.license.cache.v1'
 const INSTALL_KEY = 'jueying.install.id.v1'

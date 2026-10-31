@@ -107,7 +107,7 @@ body {
     padding-right: 2.25rem;
   }
   .btn {
-    @apply inline-flex select-none items-center justify-center gap-2 rounded-full border border-line
+    @apply inline-flex select-none items-center justify-center gap-2 whitespace-nowrap rounded-full border border-line
       bg-canvas px-4 py-2 text-sm font-medium text-ink transition hover:bg-soft
       disabled:cursor-not-allowed disabled:opacity-40;
     box-shadow: 0 1px 2px rgb(0 0 0 / 0.04);

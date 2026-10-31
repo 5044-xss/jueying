@@ -1,5 +1,6 @@
 import { Capacitor } from '@capacitor/core'
 import { Directory, Filesystem } from '@capacitor/filesystem'
+import { Share } from '@capacitor/share'
 import type { AppData, CasePack, CaseShot, LibraryAsset, MediaRef, Project, Shot } from '@/core/types'
 
 const DB_NAME = 'jueying-media'
@@ -192,6 +193,46 @@ export async function saveLocalMedia(
 
   await idbPut(name, blob)
   return { url: URL.createObjectURL(blob), path: `${LOCAL_PREFIX}${name}` }
+}
+
+function shareFileName(title: string | undefined, ext: string): string {
+  const base = String(title || '掘影成片')
+    .replace(/[\\/:*?"<>|]+/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 48)
+  return `${base || '掘影成片'}.${ext}`
+}
+
+export async function shareNativeMedia(path: string, title?: string): Promise<boolean> {
+  if (!isNative()) return false
+  const name = nativeFileName(path)
+  if (!name) return false
+
+  const result = await Filesystem.readFile({
+    path: nativePath(name),
+    directory: Directory.Data,
+  })
+  if (typeof result.data !== 'string') throw new Error('无法读取成片文件')
+
+  const target = `share/${shareFileName(title, extensionOf(name) ?? 'mp4')}`
+  await Filesystem.writeFile({
+    path: target,
+    data: result.data,
+    directory: Directory.Cache,
+    recursive: true,
+  })
+  const { uri } = await Filesystem.getUri({ path: target, directory: Directory.Cache })
+  try {
+    await Share.share({
+      title: title || '掘影成片',
+      files: [uri],
+      dialogTitle: '保存或分享成片',
+    })
+  } catch (error) {
+    if (!/cancel/i.test(String((error as Error)?.message || error))) throw error
+  }
+  return true
 }
 
 export async function downloadLocalMedia(

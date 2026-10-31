@@ -11,7 +11,8 @@ export function JobProgress({
   className?: string
 }) {
   if (state !== 'queued' && state !== 'running') return null
-  const indeterminate = typeof progress !== 'number'
+  const indeterminate = state === 'queued' || typeof progress !== 'number'
+  const width = typeof progress === 'number' ? Math.max(0, Math.min(100, progress)) : 0
   return (
     <div className={cn('h-1 overflow-hidden rounded-full bg-line/60', className)}>
       {indeterminate ? (
@@ -19,7 +20,7 @@ export function JobProgress({
       ) : (
         <i
           className="block h-full rounded-full bg-ink transition-all duration-500"
-          style={{ width: `${Math.max(3, Math.min(100, progress))}%` }}
+          style={{ width: `${width}%` }}
         />
       )}
     </div>

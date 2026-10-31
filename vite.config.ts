@@ -14,6 +14,15 @@ export default defineConfig({
   resolve: {
     alias: { '@': path.resolve(import.meta.dirname, 'src') },
   },
-  server: { port: 5173, strictPort: true },
+  server: {
+    port: 5173,
+    strictPort: true,
+    proxy: {
+      '/api/license': {
+        target: 'http://101.43.46.217',
+        changeOrigin: true,
+      },
+    },
+  },
   build: { outDir: 'dist', emptyOutDir: true },
 })

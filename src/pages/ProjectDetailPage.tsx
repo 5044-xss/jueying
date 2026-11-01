@@ -26,6 +26,7 @@ import { useNow } from '@/lib/useNow'
 import { shareNativeMedia } from '@/platform/localMedia'
 import { activeEndpoint, useApp } from '@/store/app'
 import { AssetGrid, type AssetItem } from '@/components/AssetGrid'
+import { RenameDialog } from '@/components/RenameDialog'
 import { ShotPreviewModal } from '@/components/ShotPreviewModal'
 import { Modal } from '@/ui/Modal'
 import { PageHeader } from '@/ui/PageHeader'
@@ -51,11 +52,15 @@ export function ProjectDetailPage({ projectId }: { projectId: string }) {
   const addAsset = useApp((s) => s.addAsset)
   const addProjectAssets = useApp((s) => s.addProjectAssets)
   const removeProjectAsset = useApp((s) => s.removeProjectAsset)
+  const renameProjectAsset = useApp((s) => s.renameProjectAsset)
+  const renameShot = useApp((s) => s.renameShot)
   const libraryAssets = useApp((s) => s.data.assets)
   const toast = useApp((s) => s.toast)
   const [confirming, setConfirming] = useState(false)
   const [confirmShot, setConfirmShot] = useState<Shot | null>(null)
   const [confirmAsset, setConfirmAsset] = useState<AssetItem | null>(null)
+  const [renamingShot, setRenamingShot] = useState<Shot | null>(null)
+  const [renamingAsset, setRenamingAsset] = useState<AssetItem | null>(null)
   const [query, setQuery] = useState('')
   const [assetQuery, setAssetQuery] = useState('')
   const [tab, setTab] = useState<'videos' | 'assets'>('videos')
@@ -228,6 +233,7 @@ export function ProjectDetailPage({ projectId }: { projectId: string }) {
                   now={now}
                   onPlay={() => setPlaying(shot)}
                   onEdit={() => editShot(project.id, shot.id)}
+                  onRename={() => setRenamingShot(shot)}
                   onCopy={() => {
                     copyShot(project.id, shot.id)
                     toast('视频已复制')
@@ -322,6 +328,10 @@ export function ProjectDetailPage({ projectId }: { projectId: string }) {
               <AssetGrid
                 items={assetItems}
                 onAddGlobal={(item) => saveToGlobal(item.id)}
+                onRename={(id) => {
+                  const item = assetItems.find((a) => a.id === id)
+                  if (item) setRenamingAsset(item)
+                }}
                 onRemove={(id) => {
                   const item = assetItems.find((a) => a.id === id)
                   if (item) setConfirmAsset(item)
@@ -330,6 +340,34 @@ export function ProjectDetailPage({ projectId }: { projectId: string }) {
             </div>
           )}
         </div>
+      )}
+
+      {renamingShot && (
+        <RenameDialog
+          title="重命名视频"
+          label="视频名称"
+          initial={renamingShot.name}
+          placeholder="输入视频名称"
+          onSubmit={(name) => {
+            renameShot(project.id, renamingShot.id, name)
+            toast('视频名称已更新')
+          }}
+          onClose={() => setRenamingShot(null)}
+        />
+      )}
+
+      {renamingAsset && (
+        <RenameDialog
+          title="重命名素材"
+          label="素材名称"
+          initial={renamingAsset.name}
+          placeholder="输入素材名称"
+          onSubmit={(name) => {
+            renameProjectAsset(project.id, renamingAsset.id, name)
+            toast('素材名称已更新')
+          }}
+          onClose={() => setRenamingAsset(null)}
+        />
       )}
 
       {confirming && (
@@ -422,6 +460,7 @@ function ShotCard({
   now,
   onPlay,
   onEdit,
+  onRename,
   onCopy,
   onDelete,
 }: {
@@ -429,6 +468,7 @@ function ShotCard({
   now: number
   onPlay: () => void
   onEdit: () => void
+  onRename: () => void
   onCopy: () => void
   onDelete: () => void
 }) {
@@ -510,6 +550,15 @@ function ShotCard({
 
       <div className="flex min-w-0 items-center gap-1 px-3 pt-2.5">
         <b className="min-w-0 flex-1 truncate text-sm font-medium">{shot.name}</b>
+        <button
+          type="button"
+          onClick={onRename}
+          title="重命名视频"
+          aria-label="重命名视频"
+          className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-dim transition hover:bg-soft hover:text-ink"
+        >
+          <Pencil size={12} />
+        </button>
         <button
           type="button"
           onClick={openOutput}

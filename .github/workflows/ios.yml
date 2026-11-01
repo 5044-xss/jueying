@@ -19,6 +19,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Generate icons
+        run: npm run icon
+
       - name: Build web assets
         run: npm run build
 
@@ -40,13 +43,14 @@ jobs:
 
       - name: Package IPA
         run: |
+          VERSION=$(node -p "require('./package.json').version")
           mkdir -p Payload
           cp -R "$RUNNER_TEMP/DerivedData/Build/Products/Release-iphoneos/App.app" Payload/
-          zip -qry jueying-ios-unsigned.ipa Payload
+          zip -qry "掘影-${VERSION}-ios.ipa" Payload
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: jueying-ios-unsigned-ipa
-          path: jueying-ios-unsigned.ipa
+          name: jueying-ios-ipa
+          path: "*-ios.ipa"
           if-no-files-found: error

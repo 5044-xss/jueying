@@ -12,6 +12,7 @@ import {
   Sparkles,
   Square,
   Timer,
+  Type,
   X,
 } from 'lucide-react'
 import type { Aspect, MediaRef, Project, Shot } from '@/core/types'
@@ -115,6 +116,7 @@ export function GeneratePage() {
   const [picker, setPicker] = useState<'reference' | 'first' | 'last' | null>(null)
   const [playing, setPlaying] = useState<Shot | null>(null)
   const [prompt, setPrompt] = useState(readDraft)
+  const [shotName, setShotName] = useState('')
   const [mode, setMode] = useState<Mode>('reference')
   const [imageOrder, setImageOrder] = useState<MediaRef[]>([])
   const [audios, setAudios] = useState<MediaRef[]>([])
@@ -167,6 +169,7 @@ export function GeneratePage() {
     const shot = project?.shots.find((s) => s.id === editingShot.shotId)
     if (shot) {
       setPrompt(shot.prompt)
+      setShotName(shot.name)
       setImageOrder(shot.images)
       setAudios(shot.audios ?? [])
       setFirst(shot.firstFrame ?? null)
@@ -300,7 +303,7 @@ export function GeneratePage() {
     const shot: Shot = {
       id: newId('shot'),
       projectId: project.id,
-      name: text.replace(/\s+/g, ' ').slice(0, 24),
+      name: shotName.trim() || text.replace(/\s+/g, ' ').slice(0, 24),
       prompt: text,
       params: { aspect, duration, resolution, seed: null, steps: 8, blocks: 50 },
       state: 'queued',
@@ -314,6 +317,7 @@ export function GeneratePage() {
 
     updateProject(project.id, { defaultParams: { aspect, duration, resolution } })
     addShot(project.id, shot)
+    setShotName('')
     toast(`已提交到「${project.name}」`)
 
     void runShotJob({
@@ -392,6 +396,17 @@ export function GeneratePage() {
                 未命名项目
               </span>
             )}
+            <label className="inline-flex min-w-[160px] flex-1 items-center gap-1.5 rounded-full border border-line bg-canvas px-3 py-1.5 text-xs text-dim transition focus-within:border-ink/50 focus-within:ring-4 focus-within:ring-ink/5 sm:max-w-sm">
+              <Type size={13} className="shrink-0" />
+              <input
+                value={shotName}
+                onChange={(e) => setShotName(e.target.value)}
+                placeholder="视频名称（可选，默认取提示词）"
+                aria-label="视频名称"
+                maxLength={80}
+                className="min-w-0 flex-1 bg-transparent text-ink outline-none placeholder:text-dim/70"
+              />
+            </label>
             <button
               className="btn ml-auto px-3.5 py-1.5 text-xs"
               onClick={() => setCreating(true)}

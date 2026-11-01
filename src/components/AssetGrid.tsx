@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
-import { BookmarkPlus, Film, Maximize2, Music, Trash2, X } from 'lucide-react'
+import { BookmarkPlus, Film, Maximize2, Music, Pencil, Trash2, X } from 'lucide-react'
 import type { AssetKind } from '@/core/types'
 import { ASSET_KIND_LABEL } from '@/lib/assets'
 import { cn } from '@/lib/utils'
@@ -17,10 +17,12 @@ export interface AssetItem {
 export function AssetGrid({
   items,
   onRemove,
+  onRename,
   onAddGlobal,
 }: {
   items: AssetItem[]
   onRemove?: (id: string) => void
+  onRename?: (id: string) => void
   onAddGlobal?: (item: AssetItem) => void
 }) {
   const [preview, setPreview] = useState<AssetItem | null>(null)
@@ -33,6 +35,7 @@ export function AssetGrid({
             key={item.id}
             item={item}
             onRemove={onRemove}
+            onRename={onRename}
             onAddGlobal={onAddGlobal}
             onPreview={setPreview}
           />
@@ -73,11 +76,13 @@ export function AssetGrid({
 function AssetCard({
   item,
   onRemove,
+  onRename,
   onAddGlobal,
   onPreview,
 }: {
   item: AssetItem
   onRemove?: (id: string) => void
+  onRename?: (id: string) => void
   onAddGlobal?: (item: AssetItem) => void
   onPreview: (item: AssetItem) => void
 }) {
@@ -115,6 +120,20 @@ function AssetCard({
           </span>
         </div>
         <div className="flex shrink-0 items-center">
+          {onRename && (
+            <button
+              type="button"
+              title="重命名素材"
+              aria-label="重命名素材"
+              onClick={(e) => {
+                e.stopPropagation()
+                onRename(item.id)
+              }}
+              className="grid h-6 w-6 place-items-center rounded-md text-dim transition hover:bg-soft hover:text-ink"
+            >
+              <Pencil size={13} />
+            </button>
+          )}
           {onAddGlobal && (
             <button
               type="button"

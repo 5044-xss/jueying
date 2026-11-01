@@ -1,7 +1,7 @@
 {
   "name": "jueying",
   "private": true,
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "掘影 · 视频生成工作台",
   "author": "掘影",
   "type": "module",
@@ -14,14 +14,16 @@
     "preview": "vite preview",
     "lint": "oxlint src",
     "typecheck": "tsc --noEmit",
-    "pack:pc": "npm run build && electron-builder",
-    "pack:win": "npm run build && electron-builder --win",
-    "pack:mac": "npm run build && electron-builder --mac",
-    "pack:linux": "npm run build && electron-builder --linux",
-    "cap:sync": "npm run build && cap sync",
-    "android": "npm run build && cap sync android && cap open android",
-    "ios": "npm run build && cap sync ios && cap open ios",
-    "android:apk": "npm run build && cap sync android && cd android && gradlew assembleDebug --no-daemon --console=plain"
+    "icon": "node scripts/gen-icon.mjs && node scripts/gen-mobile-icons.mjs",
+    "icon:mobile": "node scripts/gen-mobile-icons.mjs",
+    "pack:pc": "node scripts/gen-icon.mjs && npm run build && electron-builder",
+    "pack:win": "node scripts/gen-icon.mjs && npm run build && electron-builder --win",
+    "pack:mac": "node scripts/gen-icon.mjs && npm run build && electron-builder --mac",
+    "pack:linux": "node scripts/gen-icon.mjs && npm run build && electron-builder --linux",
+    "cap:sync": "node scripts/gen-mobile-icons.mjs && npm run build && cap sync",
+    "android": "node scripts/gen-mobile-icons.mjs && npm run build && cap sync android && cap open android",
+    "ios": "node scripts/gen-mobile-icons.mjs && npm run build && cap sync ios && cap open ios",
+    "android:apk": "node scripts/build-android.mjs"
   },
   "build": {
     "appId": "com.jueying.app",
@@ -47,10 +49,11 @@
           ]
         }
       ],
-      "icon": "build/icon.png",
+      "icon": "build/icon.ico",
       "executableName": "jueying"
     },
     "nsis": {
+      "artifactName": "${productName}-${version}-windows.${ext}",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "perMachine": false,
@@ -102,7 +105,9 @@
     "electron": "^44.7.0",
     "electron-builder": "^26.18.0",
     "oxlint": "^1.81.0",
+    "png-to-ico": "^3.0.2",
     "postcss": "^8.5.29",
+    "sharp": "^0.35.5",
     "tailwindcss": "^3.4.19",
     "typescript": "~6.0.2",
     "vite": "^8.3.0",

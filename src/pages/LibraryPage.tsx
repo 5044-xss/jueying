@@ -7,6 +7,7 @@ import { mediaKind } from '@/lib/assets'
 import { pickGalleryImages, readMedia } from '@/lib/media'
 import { useApp } from '@/store/app'
 import { AssetGrid, type AssetItem } from '@/components/AssetGrid'
+import { RenameDialog } from '@/components/RenameDialog'
 import { PageHeader } from '@/ui/PageHeader'
 import { Modal } from '@/ui/Modal'
 
@@ -14,10 +15,12 @@ export function LibraryPage() {
   const assets = useApp((s) => s.data.assets)
   const addAsset = useApp((s) => s.addAsset)
   const removeAsset = useApp((s) => s.removeAsset)
+  const renameAsset = useApp((s) => s.renameAsset)
   const toast = useApp((s) => s.toast)
   const [query, setQuery] = useState('')
   const [uploading, setUploading] = useState(false)
   const [confirm, setConfirm] = useState<LibraryAsset | null>(null)
+  const [renaming, setRenaming] = useState<LibraryAsset | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const native = Capacitor.isNativePlatform()
 
@@ -169,6 +172,10 @@ export function LibraryPage() {
             <div className="min-h-0 flex-1 overflow-y-auto pr-1 pb-2">
               <AssetGrid
                 items={items}
+                onRename={(id) => {
+                  const asset = assets.find((a) => a.id === id)
+                  if (asset) setRenaming(asset)
+                }}
                 onRemove={(id) => {
                   const asset = assets.find((a) => a.id === id)
                   if (asset) setConfirm(asset)
@@ -177,6 +184,20 @@ export function LibraryPage() {
             </div>
           )}
         </div>
+      )}
+
+      {renaming && (
+        <RenameDialog
+          title="重命名素材"
+          label="素材名称"
+          initial={renaming.name}
+          placeholder="输入素材名称"
+          onSubmit={(name) => {
+            renameAsset(renaming.id, name)
+            toast('素材名称已更新')
+          }}
+          onClose={() => setRenaming(null)}
+        />
       )}
 
       {confirm && (

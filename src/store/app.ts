@@ -66,7 +66,9 @@ interface AppState {
   addShot: (projectId: string, shot: Shot) => void
   addProjectAssets: (projectId: string, media: MediaRef[]) => void
   removeProjectAsset: (projectId: string, assetId: string) => void
+  renameProjectAsset: (projectId: string, assetId: string, name: string) => void
   updateShot: (projectId: string, shotId: string, patch: Partial<Shot>) => void
+  renameShot: (projectId: string, shotId: string, name: string) => void
   copyShot: (projectId: string, shotId: string) => void
   deleteShot: (projectId: string, shotId: string) => void
 
@@ -75,6 +77,7 @@ interface AppState {
 
   addAsset: (asset: LibraryAsset) => void
   removeAsset: (id: string) => void
+  renameAsset: (id: string, name: string) => void
 
   toast: (text: string, kind?: ToastKind) => void
   dismissToast: (id: string) => void
@@ -412,6 +415,35 @@ export const useApp = create<AppState>()((set, get) => ({
     saveNow(get().data)
   },
 
+  renameProjectAsset: (projectId, assetId, name) => {
+    const next = name.trim()
+    if (!next) return
+    const rename = (media: MediaRef): MediaRef =>
+      media.id === assetId ? { ...media, name: next } : media
+    set((s) => ({
+      data: {
+        ...s.data,
+        projects: s.data.projects.map((p) =>
+          p.id === projectId
+            ? {
+                ...p,
+                updatedAt: Date.now(),
+                assets: (p.assets ?? []).map(rename),
+                shots: p.shots.map((shot) => ({
+                  ...shot,
+                  images: shot.images.map(rename),
+                  audios: shot.audios?.map(rename),
+                  firstFrame: shot.firstFrame ? rename(shot.firstFrame) : shot.firstFrame,
+                  lastFrame: shot.lastFrame ? rename(shot.lastFrame) : shot.lastFrame,
+                })),
+              }
+            : p,
+        ),
+      },
+    }))
+    saveNow(get().data)
+  },
+
   updateShot: (projectId, shotId, patch) => {
     const touchesMedia =
       'output' in patch ||
@@ -442,6 +474,28 @@ export const useApp = create<AppState>()((set, get) => ({
     ) {
       saveNow(get().data)
     }
+  },
+
+  renameShot: (projectId, shotId, name) => {
+    const next = name.trim()
+    if (!next) return
+    set((s) => ({
+      data: {
+        ...s.data,
+        projects: s.data.projects.map((p) =>
+          p.id === projectId
+            ? {
+                ...p,
+                updatedAt: Date.now(),
+                shots: p.shots.map((shot) =>
+                  shot.id === shotId ? { ...shot, name: next } : shot,
+                ),
+              }
+            : p,
+        ),
+      },
+    }))
+    saveNow(get().data)
   },
 
   copyShot: (projectId, shotId) =>
@@ -495,6 +549,18 @@ export const useApp = create<AppState>()((set, get) => ({
     const before = get().data
     set((s) => ({ data: { ...s.data, assets: s.data.assets.filter((a) => a.id !== id) } }))
     gcMedia(before, get().data)
+  },
+
+  renameAsset: (id, name) => {
+    const next = name.trim()
+    if (!next) return
+    set((s) => ({
+      data: {
+        ...s.data,
+        assets: s.data.assets.map((a) => (a.id === id ? { ...a, name: next } : a)),
+      },
+    }))
+    saveNow(get().data)
   },
 
   toast: (text, kind = 'ok') => {

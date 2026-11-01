@@ -11,7 +11,12 @@ import { ProjectDetailPage } from '@/pages/ProjectDetailPage'
 import { LibraryPage } from '@/pages/LibraryPage'
 import { SettingsDialog } from '@/components/SettingsDialog'
 import { Toaster } from '@/ui/Toaster'
-import { downloadLocalMedia, extensionOfUrl } from '@/platform/localMedia'
+import {
+  downloadLocalMedia,
+  extensionOf,
+  extensionOfUrl,
+  isPlayableLocalUrl,
+} from '@/platform/localMedia'
 
 let resumeStarted = false
 
@@ -79,14 +84,20 @@ export function App() {
       for (const project of state.data.projects) {
         for (const shot of project.shots) {
           if (cancelled) return
-          if (shot.state !== 'success' || !shot.output || !/^https?:/i.test(shot.output)) continue
+          if (shot.state !== 'success' || isPlayableLocalUrl(shot.output)) continue
+          const remote = /^https?:/i.test(shot.output ?? '')
+            ? shot.output
+            : shot.remoteOutput
+          if (!remote || !/^https?:/i.test(remote)) continue
           try {
-            const ext = extensionOfUrl(shot.output) ?? 'mp4'
-            const local = await downloadLocalMedia(shot.output, shot.id, ext)
+            const ext =
+              extensionOfUrl(remote) ?? extensionOf(shot.outputPath) ?? 'mp4'
+            const local = await downloadLocalMedia(remote, shot.id, ext)
             if (!cancelled) {
               useApp.getState().updateShot(project.id, shot.id, {
                 output: local.url,
                 outputPath: local.path,
+                remoteOutput: remote,
               })
             }
           } catch {

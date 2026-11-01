@@ -39,6 +39,7 @@ export function ShotActions({ projectId, shot }: { projectId: string; shot: Shot
       progress: undefined,
       error: undefined,
       output: undefined,
+      remoteOutput: undefined,
       outputPath: undefined,
       finishedAt: null,
     }

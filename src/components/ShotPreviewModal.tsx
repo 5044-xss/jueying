@@ -3,6 +3,7 @@ import { Capacitor } from '@capacitor/core'
 import { Download, FolderOpen, Loader2 } from 'lucide-react'
 import type { Shot } from '@/core/types'
 import { shareNativeMedia } from '@/platform/localMedia'
+import { usePlaybackSrc } from '@/lib/usePlaybackSrc'
 import { useApp } from '@/store/app'
 import { Modal } from '@/ui/Modal'
 import { cn } from '@/lib/utils'
@@ -24,6 +25,7 @@ export function ShotPreviewModal({
   const toast = useApp((s) => s.toast)
   const [tab, setTab] = useState<Tab>('video')
   const [saving, setSaving] = useState(false)
+  const { src: playSrc, loading: preparing } = usePlaybackSrc(shot.output)
 
   const canReveal = Boolean(window.desktop?.media?.reveal)
   const canShare = Capacitor.isNativePlatform() && Boolean(shot.outputPath)
@@ -99,15 +101,21 @@ export function ShotPreviewModal({
 
       {tab === 'video' ? (
         shot.output ? (
-          <video
-            id="shot-player"
-            src={shot.output}
-            controls
-            autoPlay
-            playsInline
-            preload="metadata"
-            className="w-full rounded-xl bg-black"
-          />
+          !playSrc || preparing ? (
+            <div className="grid aspect-video w-full place-items-center rounded-xl bg-black">
+              <Loader2 size={18} className="animate-spin text-canvas/60" />
+            </div>
+          ) : (
+            <video
+              id="shot-player"
+              src={playSrc}
+              controls
+              autoPlay
+              playsInline
+              preload="metadata"
+              className="w-full rounded-xl bg-black"
+            />
+          )
         ) : (
           <p className="text-sm text-dim">还没有成片。</p>
         )

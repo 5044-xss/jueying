@@ -35,6 +35,8 @@ export interface Shot {
   endpointId?: string
   progress?: number
   output?: string
+  /** 云端成片地址，本地缓存丢失时用于重新下载 */
+  remoteOutput?: string
   /** 本地成片文件名（用于重启后恢复预览与清理） */
   outputPath?: string
   error?: string

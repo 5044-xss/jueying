@@ -177,6 +177,7 @@ export class ComfyClient {
     onProgress?: (value: number, max: number, promptId?: string) => void
     onExecuting?: (node: string | null, promptId?: string) => void
     onError?: (err: Event) => void
+    onClose?: () => void
   }): () => void {
     const wsUrl = this.baseUrl.replace(/^http/, 'ws') + `/ws?clientId=${encodeURIComponent(clientId)}`
     const ws = new WebSocket(wsUrl)
@@ -196,17 +197,16 @@ export class ComfyClient {
               { value?: number; max?: number; state?: string }
             >,
           )
+          // progress_state 会带上所有已完成节点（max 常为 1），把它们当成 100%
+          // 会让进度条在第一个节点结束时直接跳到 99%，之后的真实进度全被吞掉。
           const running = nodes.filter(
             (node) => node.state === 'running' && Number(node.max) > 0,
           )
-          if (running.length) {
-            const ratio = Math.max(
-              ...running.map((node) => Number(node.value ?? 0) / Number(node.max)),
-            )
-            handlers.onProgress?.(ratio, 1, promptId)
-          } else if (nodes.some((node) => node.state === 'finished')) {
-            handlers.onProgress?.(1, 1, promptId)
-          }
+          if (!running.length) return
+          const ratio = Math.max(
+            ...running.map((node) => Number(node.value ?? 0) / Number(node.max)),
+          )
+          handlers.onProgress?.(ratio, 1, promptId)
         }
         if (msg.type === 'executing') {
           handlers.onExecuting?.(msg.data?.node ?? null, promptId)
@@ -216,6 +216,7 @@ export class ComfyClient {
       }
     }
     ws.onerror = (err) => handlers.onError?.(err)
+    ws.onclose = () => handlers.onClose?.()
     return () => ws.close()
   }
 }

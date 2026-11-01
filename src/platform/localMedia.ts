@@ -14,6 +14,40 @@ export interface LocalRef {
   path: string
 }
 
+const VIDEO_EXTS = new Set(['mp4', 'm4v', 'mov', 'webm', 'mkv'])
+const MIN_VIDEO_BYTES = 1024
+const DOWNLOAD_ATTEMPTS = 3
+
+function isVideoExt(ext?: string | null): boolean {
+  return VIDEO_EXTS.has(String(ext || '').toLowerCase())
+}
+
+function headerLooksLikeVideo(bytes: Uint8Array, ext: string): boolean {
+  if (bytes.length < 8) return false
+  const low = ext.toLowerCase()
+  if (low === 'webm' || low === 'mkv') {
+    return bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3
+  }
+  if (low === 'mp4' || low === 'm4v' || low === 'mov') {
+    const head = Array.from(bytes.slice(0, 16), (b) => String.fromCharCode(b)).join('')
+    if (head.includes('ftyp')) return true
+  }
+  // 排除被保存成 .mp4 的 HTML/JSON/纯文本错误页
+  const printable = (b: number) => b >= 0x20 && b < 0x7f
+  if (bytes.slice(0, 4).every(printable)) return false
+  const first = bytes.find((b) => b !== 0x20 && b !== 0x0a && b !== 0x0d && b !== 0x09)
+  return first !== undefined && first !== 0x3c && first !== 0x7b && first !== 0x5b
+}
+
+function decodeBase64(text: string): Uint8Array {
+  const binary = atob(text)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
+  return bytes
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
 let dbPromise: Promise<IDBDatabase | null> | null = null
 
 function openDb(): Promise<IDBDatabase | null> {
@@ -101,6 +135,15 @@ export function extensionOfUrl(url: string): string | undefined {
   return extensionOf(url)
 }
 
+export function isPlayableLocalUrl(url?: string | null): boolean {
+  if (!url) return false
+  return (
+    /^(blob:|jueying-media:|local-media:|capacitor-media:)/i.test(url) ||
+    /^capacitor:\/\//i.test(url) ||
+    /\/_capacitor_file_\//i.test(url)
+  )
+}
+
 export function mimeExt(type: string): string | undefined {
   const value = type.toLowerCase()
   if (value === 'image/jpeg') return 'jpg'
@@ -141,6 +184,30 @@ function nativePath(name: string): string {
 
 function isNative(): boolean {
   return Capacitor.isNativePlatform()
+}
+
+/** 检查原生文件是否存在且完整；视频还会校验文件头，避免残缺文件被当成成片。 */
+async function nativeFileLooksComplete(name: string): Promise<boolean> {
+  const ext = extensionOf(name) ?? ''
+  try {
+    const info = await Filesystem.stat({
+      path: nativePath(name),
+      directory: Directory.Data,
+    })
+    if (!info.size) return false
+    if (!isVideoExt(ext)) return true
+    if (info.size < MIN_VIDEO_BYTES) return false
+    const head = await Filesystem.readFile({
+      path: nativePath(name),
+      directory: Directory.Data,
+      offset: 0,
+      length: 16,
+    })
+    if (typeof head.data !== 'string') return false
+    return headerLooksLikeVideo(decodeBase64(head.data), ext)
+  } catch {
+    return false
+  }
 }
 
 function blobToBase64(blob: Blob): Promise<string> {
@@ -235,6 +302,68 @@ export async function shareNativeMedia(path: string, title?: string): Promise<bo
   return true
 }
 
+async function downloadNativeMedia(
+  remoteUrl: string,
+  name: string,
+): Promise<LocalRef> {
+  let lastError: Error | null = null
+  for (let attempt = 0; attempt < DOWNLOAD_ATTEMPTS; attempt += 1) {
+    try {
+      await Filesystem.downloadFile({
+        url: remoteUrl,
+        path: nativePath(name),
+        directory: Directory.Data,
+        recursive: true,
+      })
+      if (await nativeFileLooksComplete(name)) {
+        const { uri } = await Filesystem.getUri({
+          path: nativePath(name),
+          directory: Directory.Data,
+        })
+        return { url: Capacitor.convertFileSrc(uri), path: `${NATIVE_PREFIX}${name}` }
+      }
+      lastError = new Error('下载的成片不完整')
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err))
+    }
+    await Filesystem.deleteFile({
+      path: nativePath(name),
+      directory: Directory.Data,
+    }).catch(() => {})
+    if (attempt < DOWNLOAD_ATTEMPTS - 1) await sleep(800)
+  }
+  throw lastError ?? new Error('成片下载失败')
+}
+
+async function downloadWebMedia(
+  remoteUrl: string,
+  safe: string,
+  clean: string,
+): Promise<LocalRef> {
+  let lastError: Error | null = null
+  for (let attempt = 0; attempt < DOWNLOAD_ATTEMPTS; attempt += 1) {
+    try {
+      const res = await fetch(remoteUrl)
+      if (!res.ok) throw new Error(`下载失败：${res.status}`)
+      const expected = Number(res.headers.get('content-length') ?? 0)
+      const blob = await res.blob()
+      if (!blob.size) throw new Error('下载内容为空')
+      if (expected > 0 && blob.size !== expected) {
+        throw new Error(`下载不完整（${blob.size}/${expected} 字节）`)
+      }
+      if (isVideoExt(clean)) {
+        const head = new Uint8Array(await blob.slice(0, 16).arrayBuffer())
+        if (!headerLooksLikeVideo(head, clean)) throw new Error('下载内容不是有效视频')
+      }
+      return await saveLocalMedia(blob, safe, clean)
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err))
+      if (attempt < DOWNLOAD_ATTEMPTS - 1) await sleep(800)
+    }
+  }
+  throw lastError ?? new Error('成片下载失败')
+}
+
 export async function downloadLocalMedia(
   remoteUrl: string,
   id: string,
@@ -249,24 +378,41 @@ export async function downloadLocalMedia(
   }
 
   if (isNative()) {
-    const name = `${safe}.${clean}`
-    await Filesystem.downloadFile({
-      url: remoteUrl,
-      path: nativePath(name),
-      directory: Directory.Data,
-      recursive: true,
-    })
-    const { uri } = await Filesystem.getUri({
-      path: nativePath(name),
-      directory: Directory.Data,
-    })
-    return { url: Capacitor.convertFileSrc(uri), path: `${NATIVE_PREFIX}${name}` }
+    return downloadNativeMedia(remoteUrl, `${safe}.${clean}`)
   }
 
-  const res = await fetch(remoteUrl)
-  if (!res.ok) throw new Error(`下载失败：${res.status}`)
+  return downloadWebMedia(remoteUrl, safe, clean)
+}
+
+const playbackCache = new Map<string, string>()
+const PLAYBACK_CACHE_LIMIT = 4
+
+/** 安卓 WebView 的本地文件服务器对 Range 请求支持有缺陷，直接播放容易中断或报错。 */
+export function needsPlayableConversion(url?: string | null): boolean {
+  if (!url || !isNative()) return false
+  if (Capacitor.getPlatform() !== 'android') return false
+  return /\/_capacitor_file_\//i.test(url)
+}
+
+/** 安卓上把本地成片整体读成 blob URL 再播放，绕开本地服务器的 Range 问题。 */
+export async function toPlayableUrl(url: string): Promise<string> {
+  if (!needsPlayableConversion(url)) return url
+  const cached = playbackCache.get(url)
+  if (cached) return cached
+  const res = await fetch(url)
+  if (!res.ok) throw new Error(`读取本地成片失败：${res.status}`)
   const blob = await res.blob()
-  return saveLocalMedia(blob, safe, clean)
+  if (!blob.size) throw new Error('本地成片文件为空')
+  const objectUrl = URL.createObjectURL(blob)
+  playbackCache.set(url, objectUrl)
+  while (playbackCache.size > PLAYBACK_CACHE_LIMIT) {
+    const oldest = playbackCache.keys().next().value
+    if (!oldest) break
+    const oldUrl = playbackCache.get(oldest)
+    playbackCache.delete(oldest)
+    if (oldUrl) URL.revokeObjectURL(oldUrl)
+  }
+  return objectUrl
 }
 
 export async function readLocalMedia(path: string): Promise<Blob | null> {
@@ -409,6 +555,10 @@ async function resolveNativeUrl(
   if (!name) return undefined
   if (!cache.has(name)) {
     try {
+      if (isVideoExt(extensionOf(name)) && !(await nativeFileLooksComplete(name))) {
+        cache.set(name, null)
+        return undefined
+      }
       const { uri } = await Filesystem.getUri({
         path: nativePath(name),
         directory: Directory.Data,
@@ -475,6 +625,9 @@ export async function hydrateLocalMedia(data: AppData): Promise<AppData> {
       if (shot.outputPath) {
         const url = await resolveUrl(shot.outputPath)
         if (url) output = url
+      }
+      if (shot.remoteOutput && !isPlayableLocalUrl(output)) {
+        output = shot.remoteOutput
       }
       shots.push({
         ...shot,

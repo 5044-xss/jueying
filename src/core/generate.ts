@@ -612,24 +612,48 @@ async function pollForOutput(
 ): Promise<void> {
   let runningNow = false
   let lastPct = initialProgress ?? 0
-  const disconnect = client.connectEvents(clientId ?? newId('job'), {
-    onExecuting: (node, eventPromptId) => {
-      if (!eventPromptId || eventPromptId !== promptId) return
-      if (!node) return
-      runningNow = true
-      update({ state: 'running' })
-    },
-    onProgress: (value, max, eventPromptId) => {
-      if (!max) return
-      if (eventPromptId && eventPromptId !== promptId) return
-      if (!eventPromptId && !runningNow) return
-      runningNow = true
-      const pct = Math.max(2, Math.min(99, Math.round((value / max) * 100)))
-      if (pct <= lastPct) return
-      lastPct = pct
-      update({ state: 'running', progress: pct })
-    },
-  })
+  let disposed = false
+  const connection: { close: (() => void) | null } = { close: null }
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  let reconnectAttempts = 0
+
+  // 移动端切后台或网络抖动会断开 WebSocket，断了就重连，避免进度永远停在旧值。
+  const connect = () => {
+    if (disposed) return
+    const close = client.connectEvents(clientId ?? newId('job'), {
+      onExecuting: (node, eventPromptId) => {
+        if (!eventPromptId || eventPromptId !== promptId) return
+        if (!node) return
+        reconnectAttempts = 0
+        runningNow = true
+        update({ state: 'running' })
+      },
+      onProgress: (value, max, eventPromptId) => {
+        if (!max) return
+        if (eventPromptId && eventPromptId !== promptId) return
+        if (!eventPromptId && !runningNow) return
+        reconnectAttempts = 0
+        runningNow = true
+        const pct = Math.max(2, Math.min(99, Math.round((value / max) * 100)))
+        if (pct <= lastPct) return
+        lastPct = pct
+        update({ state: 'running', progress: pct })
+      },
+      onClose: () => {
+        close()
+        if (connection.close === close) connection.close = null
+        if (disposed || reconnectTimer || reconnectAttempts >= 100) return
+        reconnectAttempts += 1
+        const delay = Math.min(2500 * reconnectAttempts, 20_000)
+        reconnectTimer = setTimeout(() => {
+          reconnectTimer = null
+          connect()
+        }, delay)
+      },
+    })
+    connection.close = close
+  }
+  connect()
 
   const deadline = Date.now() + 2 * 60 * 60 * 1000
   let errorStreak = 0
@@ -700,6 +724,7 @@ async function pollForOutput(
           progress: 100,
           output,
           outputPath,
+          remoteOutput: remote,
           finishedAt: Date.now(),
         })
         if (outputPath) toast('成片已生成并保存到本地')
@@ -710,7 +735,9 @@ async function pollForOutput(
     }
     throw new Error('生成超时（超过 2 小时）')
   } finally {
-    disconnect()
+    disposed = true
+    if (reconnectTimer) clearTimeout(reconnectTimer)
+    connection.close?.()
   }
 }
 
@@ -718,7 +745,7 @@ export async function runShotJob(opts: RunShotOptions): Promise<void> {
   const { client, endpointId, shot, images, audios, firstFrame, lastFrame, update, toast } = opts
   cancelRequests.delete(shot.id)
   try {
-    update({ state: 'queued', progress: 0, error: undefined })
+    update({ state: 'queued', progress: undefined, error: undefined })
     const info = await getNodeInfo(client)
     const caps = Object.keys(info).length ? capsFromObjectInfo(info) : DEFAULT_CAPS
 
@@ -780,7 +807,7 @@ export async function runShotJob(opts: RunShotOptions): Promise<void> {
       promptId,
       clientId,
       state: 'queued',
-      progress: 0,
+      progress: undefined,
       ...(endpointId ? { endpointId } : {}),
     })
     if (takeCancelRequest(shot.id)) {
@@ -792,7 +819,7 @@ export async function runShotJob(opts: RunShotOptions): Promise<void> {
       client,
       promptId,
       clientId,
-      initialProgress: shot.progress,
+      initialProgress: 0,
       shotId: shot.id,
       update,
       toast,
@@ -824,7 +851,7 @@ export async function resumeShotJob(opts: ResumeShotOptions): Promise<void> {
         client,
         promptId: shot.promptId,
         clientId: shot.clientId,
-        initialProgress: shot.progress,
+        initialProgress: Math.min(shot.progress ?? 0, 99),
         shotId: shot.id,
         update,
         toast,

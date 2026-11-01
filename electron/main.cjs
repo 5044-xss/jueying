@@ -2,8 +2,57 @@
 const { app, BrowserWindow, ipcMain, shell, net, protocol, powerMonitor } = require('electron')
 const path = require('node:path')
 const fs = require('node:fs')
-const { pathToFileURL } = require('node:url')
+const { Readable } = require('node:stream')
 const { createLicenseService } = require('./license.cjs')
+
+const MIME_BY_EXT = {
+  mp4: 'video/mp4',
+  m4v: 'video/mp4',
+  mov: 'video/quicktime',
+  webm: 'video/webm',
+  mkv: 'video/x-matroska',
+  mp3: 'audio/mpeg',
+  wav: 'audio/wav',
+  m4a: 'audio/mp4',
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  webp: 'image/webp',
+  gif: 'image/gif',
+}
+
+function mimeOf(file) {
+  const ext = path.extname(file).slice(1).toLowerCase()
+  return MIME_BY_EXT[ext] || 'application/octet-stream'
+}
+
+function looksLikeMediaFile(file) {
+  try {
+    const info = fs.statSync(file)
+    if (!info.isFile() || info.size < 1024) return false
+    const ext = path.extname(file).slice(1).toLowerCase()
+    const fd = fs.openSync(file, 'r')
+    const head = Buffer.alloc(16)
+    try {
+      fs.readSync(fd, head, 0, 16, 0)
+    } finally {
+      fs.closeSync(fd)
+    }
+    if (ext === 'webm' || ext === 'mkv') {
+      return head[0] === 0x1a && head[1] === 0x45 && head[2] === 0xdf && head[3] === 0xa3
+    }
+    if ((ext === 'mp4' || ext === 'm4v' || ext === 'mov') && head.toString('latin1', 0, 16).includes('ftyp')) {
+      return true
+    }
+    // 排除被保存成 .mp4 的 HTML/JSON/纯文本错误页
+    const printable = (b) => b >= 0x20 && b < 0x7f
+    if (head.subarray(0, 4).every(printable)) return false
+    const first = head.find((b) => b !== 0x20 && b !== 0x0a && b !== 0x0d && b !== 0x09)
+    return first !== undefined && first !== 0x3c && first !== 0x7b && first !== 0x5b
+  } catch {
+    return false
+  }
+}
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -66,20 +115,38 @@ function registerIpc() {
     const dir = mediaDir()
     fs.mkdirSync(dir, { recursive: true })
     const file = path.join(dir, `${safe}.${cleanExt}`)
-    if (fs.existsSync(file) && fs.statSync(file).size > 1024) return mediaUrl(safe, cleanExt)
+    if (looksLikeMediaFile(file)) return mediaUrl(safe, cleanExt)
 
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 10 * 60_000)
-    try {
-      const res = await net.fetch(String(url), { signal: controller.signal })
-      if (!res.ok) throw new Error(`视频下载失败：${res.status}`)
-      const buffer = Buffer.from(await res.arrayBuffer())
-      if (!buffer.length) throw new Error('视频下载内容为空')
-      fs.writeFileSync(file, buffer)
-      return mediaUrl(safe, cleanExt)
-    } finally {
-      clearTimeout(timer)
+    let lastError = null
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), 10 * 60_000)
+      try {
+        const res = await net.fetch(String(url), { signal: controller.signal })
+        if (!res.ok) throw new Error(`视频下载失败：${res.status}`)
+        const expected = Number(res.headers.get('content-length') || 0)
+        const buffer = Buffer.from(await res.arrayBuffer())
+        if (!buffer.length) throw new Error('视频下载内容为空')
+        if (expected > 0 && buffer.length !== expected) {
+          throw new Error(`视频下载不完整（${buffer.length}/${expected} 字节）`)
+        }
+        const tmp = `${file}.${process.pid}.${Date.now()}.part`
+        fs.writeFileSync(tmp, buffer)
+        fs.renameSync(tmp, file)
+        if (!looksLikeMediaFile(file)) {
+          fs.rmSync(file, { force: true })
+          throw new Error('下载的成片不是有效视频')
+        }
+        return mediaUrl(safe, cleanExt)
+      } catch (err) {
+        lastError = err
+        fs.rmSync(file, { force: true })
+        if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 800))
+      } finally {
+        clearTimeout(timer)
+      }
     }
+    throw lastError instanceof Error ? lastError : new Error('视频下载失败')
   })
 
   ipcMain.handle('media:saveBuffer', (_event, data, id, ext) => {
@@ -193,7 +260,60 @@ app.whenReady().then(() => {
       const name = path.basename(decodeURIComponent(new URL(request.url).pathname))
       const file = path.join(mediaDir(), name)
       if (!fs.existsSync(file)) return new Response('Not found', { status: 404 })
-      return net.fetch(pathToFileURL(file).toString())
+      const stat = fs.statSync(file)
+      const type = mimeOf(file)
+      if (request.method === 'HEAD') {
+        return new Response(null, {
+          status: 200,
+          headers: {
+            'Content-Type': type,
+            'Content-Length': String(stat.size),
+            'Accept-Ranges': 'bytes',
+            'Cache-Control': 'no-cache',
+          },
+        })
+      }
+      const range = request.headers.get('range')
+      if (range) {
+        const match = /^bytes=(\d*)-(\d*)$/i.exec(range.trim())
+        if (match) {
+          const from = match[1]
+          const to = match[2]
+          let start = from ? Number(from) : 0
+          let end = to ? Number(to) : stat.size - 1
+          if (!from && to) {
+            const suffix = Number(to)
+            start = Math.max(0, stat.size - suffix)
+            end = stat.size - 1
+          }
+          if (Number.isNaN(start) || Number.isNaN(end) || start > end || start >= stat.size) {
+            return new Response(null, {
+              status: 416,
+              headers: { 'Content-Range': `bytes */${stat.size}` },
+            })
+          }
+          end = Math.min(end, stat.size - 1)
+          return new Response(Readable.toWeb(fs.createReadStream(file, { start, end })), {
+            status: 206,
+            headers: {
+              'Content-Type': type,
+              'Content-Length': String(end - start + 1),
+              'Content-Range': `bytes ${start}-${end}/${stat.size}`,
+              'Accept-Ranges': 'bytes',
+              'Cache-Control': 'no-cache',
+            },
+          })
+        }
+      }
+      return new Response(Readable.toWeb(fs.createReadStream(file)), {
+        status: 200,
+        headers: {
+          'Content-Type': type,
+          'Content-Length': String(stat.size),
+          'Accept-Ranges': 'bytes',
+          'Cache-Control': 'no-cache',
+        },
+      })
     } catch {
       return new Response('Bad request', { status: 400 })
     }

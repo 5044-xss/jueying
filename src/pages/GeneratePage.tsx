@@ -29,7 +29,7 @@ import { Select } from '@/ui/Select'
 import { PageHeader } from '@/ui/PageHeader'
 import { ShotPreviewModal } from '@/components/ShotPreviewModal'
 import { JobProgress } from '@/ui/JobProgress'
-import { DURATIONS, RESOLUTIONS, friendlyP, resolutionLabel } from '@/lib/resolution'
+import { DURATIONS, RESOLUTIONS, resolutionLabel } from '@/lib/resolution'
 import { timeAgo } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 
@@ -179,12 +179,6 @@ export function GeneratePage() {
     }
     clearEditingShot()
   }, [editingShot, clearEditingShot, toast])
-
-  // 768P 及以上时 13–15s 长片会崩：自动夹取到 12s，并禁用这些时长。
-  const highRes = friendlyP(resolution, aspect) >= 768
-  useEffect(() => {
-    if (highRes && duration >= 13) setDuration(12)
-  }, [highRes, duration])
 
   // 文本框高度：3~7 行自适应
   useEffect(() => {
@@ -630,7 +624,6 @@ export function GeneratePage() {
               options={DURATIONS.map((n) => ({
                 value: String(n),
                 label: `${n}s`,
-                disabled: highRes && n >= 13,
               }))}
             />
             <Select

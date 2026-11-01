@@ -570,7 +570,7 @@ function createLicenseService({
 
       saveLicenseText(value)
       writeStateCache(online.payload, online.sig)
-      lastSuccessAt = Date.now()
+      lastSuccessMono = performance.now()
       const next = setState(stateFromData(online.data, m.code))
       schedule()
       return { ok: true, state: next }
@@ -580,7 +580,7 @@ function createLicenseService({
       }
 
       saveLicenseText(value)
-      lastSuccessAt = Date.now()
+      lastSuccessMono = performance.now()
       const next = setState(
         stateFromData(localData, m.code, {
           offline: true,

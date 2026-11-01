@@ -1,6 +1,7 @@
 import type { Aspect, MediaRef, Shot } from './types'
 import { newId } from './id'
 import { ComfyClient, ComfySubmitError, type HistoryEntry, type HistoryOutput } from './comfy'
+import { effectiveResolution } from '@/lib/resolution'
 import { downloadLocalMedia, extensionOf } from '@/platform/localMedia'
 
 export interface Caps {
@@ -363,7 +364,9 @@ export function buildWorkflow(opts: {
 }): Workflow {
   const { images, audios, caps } = opts
   const duration = Math.min(15, Math.max(4, Math.round(opts.duration || 10)))
-  const { width, height, megapixels } = resolutionToWH(opts.resolution, opts.aspect)
+  // 13s 以上长片按 608P 出片；界面显示用户选的 768P，仅在内部降档。
+  const resolution = effectiveResolution(opts.resolution, duration, opts.aspect)
+  const { width, height, megapixels } = resolutionToWH(resolution, opts.aspect)
   const seed = opts.seed && opts.seed > 0 ? Math.floor(opts.seed) : 1 + Math.floor(Math.random() * 1_000_000_000)
   const useRef2va = audios.length > 0
   const unet = useRef2va ? H3.unetRef2va : H3.unetFl2va

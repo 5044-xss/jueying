@@ -48,6 +48,26 @@ export function friendlyP(res: string, aspect: Aspect): number {
   return buckets.find((b) => Math.abs(b - short) / b < 0.07) ?? short
 }
 
+// 13s 以上长片在 768P 会崩，只能按 608P 跑。
+export const LONG_TAKE_P = 608
+
+export function shortSide(res: string, aspect: Aspect): number {
+  return Math.min(...resDims(res, aspect))
+}
+
+// 当前画幅下不超过目标像素的最高档位
+export function resolutionAtMostP(maxP: number, aspect: Aspect): string {
+  const fits = RESOLUTIONS.filter((r) => shortSide(r, aspect) <= maxP)
+  return fits[fits.length - 1] ?? RESOLUTIONS[0]
+}
+
+// 页面上保留用户选的档位，提交时对长片内部降到 608P。
+export function effectiveResolution(res: string, duration: number, aspect: Aspect): string {
+  return duration >= 13 && shortSide(res, aspect) > LONG_TAKE_P
+    ? resolutionAtMostP(LONG_TAKE_P, aspect)
+    : res
+}
+
 export function resolutionLabel(res: string, aspect: Aspect): string {
   return `${friendlyP(res, aspect)}P`
 }

@@ -1,7 +1,7 @@
 {
   "name": "jueying",
   "private": true,
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "掘影 · 视频生成工作台",
   "author": "掘影",
   "type": "module",
